@@ -172,13 +172,12 @@ def scan_for_devices():
         print("\n[!] Starting Deep Scan (Classic + BLE) for 15 seconds...")
         unique_devices = {} # {addr: name}
         
-        # 1. Classic Scan
+        # 1. Classic Scan - USE ORIGINAL METHOD PARAMS
         print("Scanning Classic Bluetooth...")
         try:
-            # First find MACs
-            nearby_classic = bluetooth.discover_devices(duration=8, flush_cache=True)
-            for addr in nearby_classic:
-                unique_devices[addr] = None
+            nearby_classic = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True, lookup_class=True)
+            for addr, name, _ in nearby_classic:
+                unique_devices[addr] = name if name else None
         except Exception as e:
             log.warning(f"Classic scan failed: {e}")
 
@@ -202,20 +201,14 @@ def scan_for_devices():
         except Exception as e:
             log.warning(f"BLE scan failed: {e}")
 
-        # 3. Active Name Resolution
-        print(f"Resolving names for {len(unique_devices)} unique devices...")
+        # 3. Active Name Resolution for remaining nameless ones
+        print(f"Finalizing names for {len(unique_devices)} unique devices...")
         device_list = []
         for addr, name in unique_devices.items():
             final_name = name
-            if not final_name:
-                # Try resolving via PyBluez specifically for this MAC
-                try:
-                    resolved = bluetooth.lookup_name(addr, timeout=2)
-                    if resolved: final_name = resolved
-                except: pass
             
             if not final_name:
-                # Try resolving via hcitool
+                # Try resolving via hcitool as last resort for Classic
                 resolved = resolve_name(addr)
                 if resolved: final_name = resolved
             
