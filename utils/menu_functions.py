@@ -39,11 +39,21 @@ def get_target_address():
                 # Show list of scanned devices for user selection
                 for idx, (addr, name) in enumerate(devices):
                     print(f"{idx + 1}: Device Name: {name}, Address: {addr}")
-                selection = int(input("\nSelect a device by number: ")) - 1
-                if 0 <= selection < len(devices):
-                    target_address = devices[selection][0]
-                else:
-                    print("\nInvalid selection. Exiting.")
+                
+                try:
+                    selection_input = input("\nSelect a device by number (or Enter to exit): ").strip()
+                    if not selection_input:
+                        print("\nNo selection made. Exiting.")
+                        return
+                    
+                    selection = int(selection_input) - 1
+                    if 0 <= selection < len(devices):
+                        target_address = devices[selection][0]
+                    else:
+                        print("\nInvalid selection. Exiting.")
+                        return
+                except ValueError:
+                    print("\nInvalid input. Please enter a number. Exiting.")
                     return
         else:
             return
