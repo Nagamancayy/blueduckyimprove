@@ -70,11 +70,20 @@ class Adapter:
         self.adapter = self._get_adapter(iface)
 
     def _get_adapter(self, iface):
-        try:
-            return self.bus.get("org.bluez", f"/org/bluez/{iface}")
-        except KeyError:
-            log.error(f"Unable to find adapter '{iface}', aborting.")
-            raise ConnectionFailureException("Adapter not found")
+        retries = 5
+        while retries > 0:
+            try:
+                adapter = self.bus.get("org.bluez", f"/org/bluez/{iface}")
+                # Verify it actually has the interface
+                if adapter:
+                    return adapter
+            except:
+                log.info(f"Waiting for adapter '{iface}' to initialize... ({retries} retries left)")
+                time.sleep(1)
+                retries -= 1
+        
+        log.error(f"Unable to find adapter '{iface}' after retries, aborting.")
+        raise ConnectionFailureException("Adapter not found")
 
     def _run_command(self, command):
         result = run(command)
