@@ -47,8 +47,36 @@ def get_services(addr):
                 name = svc.get('name', 'Unknown')
                 uuid = svc.get('uuid', 'N/A')
                 print(f"Service: {name} (UUID: {uuid})")
-    except Exception as e:
-        print(f"Discovery error: {e}")
+def track_rssi(addr):
+    """Real-time RSSI tracking loop."""
+    print(f"\n[!] Starting Real-time RSSI Tracker for {addr}")
+    print("[!] Press Ctrl+C to stop tracking.")
+    try:
+        while True:
+            # Use btmgmt find for best non-connected RSSI updates
+            rssi_proc = subprocess.run(["sudo", "btmgmt", "find"], capture_output=True, text=True, timeout=2)
+            found = False
+            for line in rssi_proc.stdout.splitlines():
+                if addr.upper() in line.upper() and "rssi" in line.lower():
+                    # Parse RSSI
+                    rssi_str = line.split('rssi')[-1].split()[0]
+                    rssi_val = int(rssi_str)
+                    
+                    # Create a simple visual bar
+                    # RSSI usually ranges from -100 (weak) to -20 (strong)
+                    bar_len = max(0, min(50, (rssi_val + 110) // 2))
+                    bar = "█" * bar_len + "-" * (50 - bar_len)
+                    
+                    # Clear line and print
+                    print(f"\rRSSI: {rssi_val} dBm |{bar}|", end="", flush=True)
+                    found = True
+                    break
+            
+            if not found:
+                print(f"\r[!] {addr} not found in current scan...          ", end="", flush=True)
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("\n[!] RSSI Tracking stopped.")
 
 def get_target_address():
     target_address = input("\nWhat is the target address? Leave blank and we will scan for you: ")
@@ -92,21 +120,31 @@ def get_target_address():
                                 chosen_device = unknown_devices[s_idx]
                     
                     if chosen_device:
-                        addr, name = chosen_device
-                        print(f"\nTarget Selected: {name} ({addr})")
+                        # Normalize MAC address format (strip RSSI if it was appended to UI name)
+                        addr = chosen_device[0]
+                        name = chosen_device[1]
+                        
+                        print(f"\nTarget Selected: {name}")
+                        print(f"Address: {addr}")
+                        print("-" * 20)
                         print("1: Attack (Deliver Payload)")
                         print("2: Discover Services (Scan UUIDs/GATT)")
-                        print("3: Back to List")
+                        print("3: Proximity Tracker (Real-time RSSI)")
+                        print("4: Back to List")
                         
-                        action = input("\nSelect action (1-3): ").strip()
+                        action = input("\nSelect action (1-4): ").strip()
                         if action == "1":
                             return addr
                         elif action == "2":
                             get_services(addr)
                             input("\nPress Enter to return to device list...")
-                            continue # Back to devices list
+                            continue 
+                        elif action == "3":
+                            track_rssi(addr)
+                            input("\nPress Enter to return to device list...")
+                            continue
                         else:
-                            continue # Back to list
+                            continue 
                     else:
                         print("\nInvalid selection. Try again.")
                         continue
