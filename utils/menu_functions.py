@@ -33,10 +33,10 @@ def get_services(addr):
         adapter_path = "/org/bluez/hci0"
         device_path = f"{adapter_path}/dev_{addr.replace(':', '_')}"
         
-        # 1. Start background scan to refresh DBus properties
-        print("Starting background discovery (btmgmt)...")
-        # Use btmgmt find which is designed for robust background use
-        scan_proc = subprocess.Popen(["sudo", "btmgmt", "find"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # 1. Start background scan using TTY spoofing (it needs a terminal to stay alive)
+        print("Spoofing TTY for background scan (bluetoothctl)...")
+        # Use 'script' to trick bluetoothctl into thinking it's in a TTY
+        scan_proc = subprocess.Popen(["script", "-qc", "bluetoothctl scan on", "/dev/null"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(3)
 
         # 2. Access device object directly via DBus
@@ -80,9 +80,9 @@ def track_rssi(addr):
         adapter_path = "/org/bluez/hci0"
         device_path = f"{adapter_path}/dev_{addr.replace(':', '_')}"
         
-        # Start persistent background scan to keep DBus properties live
-        print("Activating background discovery pulse...")
-        scan_proc = subprocess.Popen(["sudo", "btmgmt", "find"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Start persistent background scan (TTY spoofed) to keep DBus properties live
+        print("Activating background TTY-spoofed discovery...")
+        scan_proc = subprocess.Popen(["script", "-qc", "bluetoothctl scan on", "/dev/null"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         # Get device proxy
         try:
