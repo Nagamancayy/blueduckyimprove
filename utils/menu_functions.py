@@ -137,18 +137,31 @@ def scan_for_devices():
     print("2: Deep Scan (Classic + BLE, with Vendor Identification)")
     scan_choice = input("Enter choice (1/2): ")
 
-    unique_devices = {} 
-
     if scan_choice == "1":
-        print("\n[!] Starting Quick Scan (8 seconds)...")
-        try:
-            nearby_classic = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True)
-            for addr, name in nearby_classic:
-                unique_devices[addr] = name if name else f"[{get_vendor(addr)}]"
-        except Exception as e:
-            log.warning(f"Quick scan failed: {e}")
+        # ORIGINAL METHOD - DO NOT EDIT
+        print("\nAttempting to scan now...")
+        nearby_devices = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True, lookup_class=True)
+        device_list = []
+        if len(nearby_devices) == 0:
+            print("\nNo nearby devices found.")
+        else:
+            print("\nFound {} nearby device(s):".format(len(nearby_devices)))
+            for idx, (addr, name, _) in enumerate(nearby_devices):
+                device_list.append((addr, name))
+
+        # Save the scanned devices only if they are not already in known devices
+        new_devices = [device for device in device_list if device not in known_devices]
+        if new_devices:
+            known_devices += new_devices
+            save_devices_to_file(known_devices)
+            for idx, (addr, name) in enumerate(new_devices):
+                print(f"{idx + 1}: Device Name: {name} | Address: {addr}")
+        return device_list
+
     else:
+        # DEEP SCAN METHOD (Nagamancayy Edition)
         print("\n[!] Starting Deep Scan (Classic + BLE) for 15 seconds...")
+        unique_devices = {} 
         # 1. Classic Scan
         try:
             nearby_classic = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True)
@@ -175,20 +188,20 @@ def scan_for_devices():
         except Exception as e:
             log.warning(f"BLE scan failed: {e}")
 
-    device_list = [(addr, name) for addr, name in unique_devices.items()]
-    
-    if not device_list:
-        print("\nNo nearby devices found.")
-    else:
-        print("\nFound {} unique device(s):".format(len(device_list)))
-        for idx, (addr, name) in enumerate(device_list):
-            print(f"{idx + 1}: Name: {name} | Address: {addr}")
+        device_list = [(addr, name) for addr, name in unique_devices.items()]
         
-        new_devices = [d for d in device_list if d not in known_devices]
-        if new_devices:
-            save_devices_to_file(known_devices + new_devices)
+        if not device_list:
+            print("\nNo nearby devices found.")
+        else:
+            print("\nFound {} unique device(s):".format(len(device_list)))
+            for idx, (addr, name) in enumerate(device_list):
+                print(f"{idx + 1}: Name: {name} | Address: {addr}")
             
-        return device_list
+            new_devices = [d for d in device_list if d not in known_devices]
+            if new_devices:
+                save_devices_to_file(known_devices + new_devices)
+                
+            return device_list
 
     return []
 
