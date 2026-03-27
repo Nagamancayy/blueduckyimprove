@@ -286,19 +286,39 @@ def scan_for_devices():
         except Exception as e:
             log.warning(f"BLE scan failed: {e}")
 
-        # 3. Active Name Resolution for remaining nameless ones
-        print(f"Finalizing names for {len(unique_devices)} unique devices...")
+        # 3. RSSI Background Check
+        print("Gathering signal strength (RSSI)...")
+        device_rssi = {} # {addr: rssi}
+        try:
+            rssi_proc = subprocess.run(["sudo", "btmgmt", "find"], capture_output=True, text=True, timeout=2)
+            for line in rssi_proc.stdout.splitlines():
+                if "rssi" in line.lower():
+                    # Parse line like: dev_found: 00:11:22:33:44:55 type BR/EDR rssi -60 ...
+                    parts = line.split()
+                    addr = next((p for p in parts if is_valid_mac_address(p)), None)
+                    if addr:
+                        rssi_val = line.split('rssi')[-1].split()[0]
+                        device_rssi[addr.upper()] = rssi_val
+        except:
+            pass
+
+        # 4. Finalize list with Names, OUI guesses, and RSSI
+        print(f"Finalizing {len(unique_devices)} unique devices...")
         device_list = []
         for addr, name in unique_devices.items():
             final_name = name
             
             if not final_name:
-                # Try resolving via hcitool as last resort for Classic
                 resolved = resolve_name(addr)
                 if resolved: final_name = resolved
             
-            # If still no name, use OUI guess
             display_name = final_name if final_name else f"[{get_vendor(addr)}]"
+            
+            # Add RSSI to display name if found
+            rssi = device_rssi.get(addr.upper())
+            if rssi:
+                display_name = f"{display_name} [RSSI: {rssi}]"
+                
             device_list.append((addr, display_name))
         
         if not device_list:
