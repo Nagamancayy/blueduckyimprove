@@ -1,5 +1,16 @@
-import os, bluetooth,re, subprocess, time, curses
+import os, bluetooth,re, subprocess, time, curses, signal
 import logging as log
+
+# Vendor OUI Dictionary for Identification
+VENDORS = {
+    "34:AB:37": "Apple/iPhone?", "AC:3C:0B": "Apple/iPhone?", "F0:D1:A9": "Apple/iPhone?",
+    "00:1A:7D": "CSR Dongle?", "BC:D1:D3": "Samsung?", "94:8B:C1": "Samsung?",
+    "D8:6C:63": "Google/Pixel?", "CC:F9:E8": "Xiaomi?", "8C:85:90": "Huawei?",
+}
+
+def get_vendor(mac):
+    prefix = mac.upper()[:8]
+    return VENDORS.get(prefix, "Unknown Device")
 def get_target_address():
     target_address = input("\nWhat is the target address? Leave blank and we will scan for you: ")
 
@@ -121,25 +132,62 @@ def scan_for_devices():
             device_choice = int(input("Enter the number of the device: "))
             return [known_devices[device_choice - 1]]
 
-    # Normal Bluetooth scan
-    print("\nAttempting to scan now...")
-    nearby_devices = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True, lookup_class=True)
-    device_list = []
-    if len(nearby_devices) == 0:
+    print("\n[!] Starting Deep Scan (Classic + BLE) for 15 seconds...")
+    unique_devices = {} # Use dict to maintain uniqueness {addr: name}
+
+    # 1. Classic Scan via PyBluez
+    try:
+        nearby_classic = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True)
+        for addr, name in nearby_classic:
+            unique_devices[addr] = name if name else f"[{get_vendor(addr)}]"
+    except Exception as e:
+        log.warning(f"Classic scan failed: {e}")
+
+    # 2. BLE Scan via hcitool (Passive/Active)
+    print("Checking for BLE devices (iPhone/Modern Android)...")
+    try:
+        # Run lescan for a short duration
+        lescan_proc = subprocess.Popen(["sudo", "hcitool", "lescan", "--duplicates"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        time.sleep(5)
+        os.kill(lescan_proc.pid, signal.SIGINT)
+        out, _ = lescan_proc.communicate()
+        
+        for line in out.decode('utf-8', errors='ignore').splitlines():
+            # Format: MAC NAME or just MAC
+            parts = line.split(maxsplit=1)
+            if len(parts) >= 1 and is_valid_mac_address(parts[0]):
+                addr = parts[0]
+                name = parts[1] if len(parts) > 1 and parts[1] != "(unknown)" else None
+                
+                if addr not in unique_devices or (unique_devices[addr].startswith("[") and name):
+                    unique_devices[addr] = name if name else f"[{get_vendor(addr)}]"
+    except Exception as e:
+        log.warning(f"BLE scan failed: {e}")
+
+    device_list = [(addr, name) for addr, name in unique_devices.items()]
+    
+    if not device_list:
         print("\nNo nearby devices found.")
     else:
-        print("\nFound {} nearby device(s):".format(len(nearby_devices)))
-        for idx, (addr, name, _) in enumerate(nearby_devices):
-            device_list.append((addr, name))
+        # We only show devices that have a name OR were identified by OUI as a known vendor
+        print("\nFound {} unique device(s):".format(len(device_list)))
+        filtered_list = []
+        for addr, name in device_list:
+            # Re-filtering: if it has a real name or is a recognized vendor, it stays. 
+            # Otherwise we keep it but it might be "Unknown Device"
+            filtered_list.append((addr, name))
+            
+        for idx, (addr, name) in enumerate(filtered_list):
+            print(f"{idx + 1}: Name: {name} | Address: {addr}")
+        
+        # Update known devices with unique new ones
+        new_devices = [d for d in filtered_list if d not in known_devices]
+        if new_devices:
+            save_devices_to_file(known_devices + new_devices)
+            
+        return filtered_list
 
-    # Save the scanned devices only if they are not already in known devices
-    new_devices = [device for device in device_list if device not in known_devices]
-    if new_devices:
-        known_devices += new_devices
-        save_devices_to_file(known_devices)
-        for idx, (addr, name) in enumerate(new_devices):
-            print(f"{idx + 1}: Device Name: {name} | Address: {addr}")
-    return device_list
+    return []
 
 def print_menu():
     title = "BlueDucky - Bluetooth Device Attacker"
