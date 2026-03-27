@@ -11,6 +11,15 @@ VENDORS = {
 def get_vendor(mac):
     prefix = mac.upper()[:8]
     return VENDORS.get(prefix, "Unknown Device")
+
+def resolve_name(addr):
+    """Try to resolve device name using hcitool as a backup."""
+    try:
+        result = subprocess.run(["hcitool", "name", addr], capture_output=True, text=True, timeout=2)
+        name = result.stdout.strip()
+        return name if name else None
+    except:
+        return None
 def get_target_address():
     target_address = input("\nWhat is the target address? Leave blank and we will scan for you: ")
 
@@ -161,12 +170,15 @@ def scan_for_devices():
     else:
         # DEEP SCAN METHOD (Nagamancayy Edition)
         print("\n[!] Starting Deep Scan (Classic + BLE) for 15 seconds...")
-        unique_devices = {} 
+        unique_devices = {} # {addr: name}
+        
         # 1. Classic Scan
+        print("Scanning Classic Bluetooth...")
         try:
-            nearby_classic = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True)
-            for addr, name in nearby_classic:
-                unique_devices[addr] = name if name else f"[{get_vendor(addr)}]"
+            # First find MACs
+            nearby_classic = bluetooth.discover_devices(duration=8, flush_cache=True)
+            for addr in nearby_classic:
+                unique_devices[addr] = None
         except Exception as e:
             log.warning(f"Classic scan failed: {e}")
 
@@ -183,12 +195,33 @@ def scan_for_devices():
                 if len(parts) >= 1 and is_valid_mac_address(parts[0]):
                     addr = parts[0]
                     name = parts[1] if len(parts) > 1 and parts[1] != "(unknown)" else None
-                    if addr not in unique_devices or (unique_devices[addr].startswith("[") and name):
-                        unique_devices[addr] = name if name else f"[{get_vendor(addr)}]"
+                    if addr not in unique_devices:
+                        unique_devices[addr] = name
+                    elif name and unique_devices[addr] is None:
+                        unique_devices[addr] = name
         except Exception as e:
             log.warning(f"BLE scan failed: {e}")
 
-        device_list = [(addr, name) for addr, name in unique_devices.items()]
+        # 3. Active Name Resolution
+        print(f"Resolving names for {len(unique_devices)} unique devices...")
+        device_list = []
+        for addr, name in unique_devices.items():
+            final_name = name
+            if not final_name:
+                # Try resolving via PyBluez specifically for this MAC
+                try:
+                    resolved = bluetooth.lookup_name(addr, timeout=2)
+                    if resolved: final_name = resolved
+                except: pass
+            
+            if not final_name:
+                # Try resolving via hcitool
+                resolved = resolve_name(addr)
+                if resolved: final_name = resolved
+            
+            # If still no name, use OUI guess
+            display_name = final_name if final_name else f"[{get_vendor(addr)}]"
+            device_list.append((addr, display_name))
         
         if not device_list:
             print("\nNo nearby devices found.")
