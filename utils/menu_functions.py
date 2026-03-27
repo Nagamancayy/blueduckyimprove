@@ -47,6 +47,9 @@ def get_services(addr):
                 name = svc.get('name', 'Unknown')
                 uuid = svc.get('uuid', 'N/A')
                 print(f"Service: {name} (UUID: {uuid})")
+    except Exception as e:
+        print(f"Discovery error: {e}")
+
 def track_rssi(addr):
     """Real-time RSSI tracking loop."""
     print(f"\n[!] Starting Real-time RSSI Tracker for {addr}")
