@@ -1,56 +1,47 @@
 import os, bluetooth,re, subprocess, time, curses, signal
 import logging as log
+from pydbus import SystemBus
 
-# Vendor OUI Dictionary for Identification
-VENDORS = {
-    "34:AB:37": "Apple/iPhone?", "AC:3C:0B": "Apple/iPhone?", "F0:D1:A9": "Apple/iPhone?",
-    "00:1A:7D": "CSR Dongle?", "BC:D1:D3": "Samsung?", "94:8B:C1": "Samsung?",
-    "D8:6C:63": "Google/Pixel?", "CC:F9:E8": "Xiaomi?", "8C:85:90": "Huawei?",
-}
-
-def get_vendor(mac):
-    prefix = mac.upper()[:8]
-    return VENDORS.get(prefix, "Unknown Device")
-
-def resolve_name(addr):
-    """Try to resolve device name using hcitool as a backup."""
-    try:
-        result = subprocess.run(["hcitool", "name", addr], capture_output=True, text=True, timeout=2)
-        name = result.stdout.strip()
-        return name if name else None
-    except:
-        return None
+# ... existing VENDORS dict ...
 
 def get_services(addr):
-    """Retrieve UUID/Services and RSSI using persistent background scan (Most Reliable)."""
+    """Retrieve UUID/Services and RSSI using native DBus (Most Reliable)."""
     print(f"\n[!] Performing Discovery for {addr}...")
     
     scan_proc = None
     try:
-        # 1. Start background scan to ensure data is fresh
+        bus = SystemBus()
+        # Ensure adapter name is correct (usually hci0)
+        adapter_path = "/org/bluez/hci0"
+        device_path = f"{adapter_path}/dev_{addr.replace(':', '_')}"
+        
+        # 1. Start background scan to refresh DBus properties
         print("Starting background scan...")
         scan_proc = subprocess.Popen(["bluetoothctl", "scan", "on"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(3) # Give it a moment to find the device
+        time.sleep(3)
 
-        # 2. Fetch Info while scan is active
-        print(f"Fetching properties for {addr}...")
-        info_proc = subprocess.run(["bluetoothctl", "info", addr], capture_output=True, text=True, timeout=5)
-        output = info_proc.stdout
-        
-        # Extract RSSI
-        rssi_match = re.search(r"RSSI:\s+(-?\d+)", output)
-        if rssi_match:
-            print(f"[+] Current RSSI: {rssi_match.group(1)} dBm")
-        
-        # Extract UUIDs
-        if "UUID:" in output:
-            print("\n--- Services & UUIDs Discovered ---")
-            for line in output.splitlines():
-                if "UUID:" in line:
-                    print(line.strip().replace("UUID: ", "-> "))
-        else:
-            print("\n[!] No services found. Device might be hidden or in non-discoverable mode.")
+        # 2. Access device object directly via DBus
+        try:
+            device = bus.get("org.bluez", device_path)
             
+            # UUIDs
+            uuids = getattr(device, "UUIDs", [])
+            if uuids:
+                print("\n--- Services & UUIDs (Native DBus) ---")
+                for u in uuids:
+                    print(f"-> {u}")
+            
+            # RSSI
+            rssi = getattr(device, "RSSI", None)
+            if rssi is not None:
+                print(f"[+] Current RSSI: {rssi} dBm")
+            else:
+                print("[!] RSSI not yet available in DBus (Device might be out of range).")
+                
+        except Exception as e:
+            print(f"[!] Could not access DBus device path: {e}")
+            print("[?] Tip: Ensure the device was discovered in the main scan.")
+
     except Exception as e:
         print(f"Discovery error: {e}")
     finally:
@@ -59,31 +50,42 @@ def get_services(addr):
             scan_proc.wait()
 
 def track_rssi(addr):
-    """Real-time RSSI tracking with a persistent background scan session."""
-    print(f"\n[!] Starting Proximity Radar for {addr}")
-    print("[!] Pulse-polling bluetoothctl info while scanning...")
+    """Real-time RSSI tracking using native DBus property monitoring."""
+    print(f"\n[!] Starting Proximity Radar (DBus Backend) for {addr}")
+    print("[!] Reading native org.bluez.Device1.RSSI updates...")
     print("[!] Press Ctrl+C to stop.")
     
     scan_proc = None
     try:
-        # Start persistent background scan
+        bus = SystemBus()
+        adapter_path = "/org/bluez/hci0"
+        device_path = f"{adapter_path}/dev_{addr.replace(':', '_')}"
+        
+        # Start persistent background scan to keep DBus properties live
         scan_proc = subprocess.Popen(["bluetoothctl", "scan", "on"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
+        # Get device proxy
+        try:
+            device = bus.get("org.bluez", device_path)
+        except:
+            print(f"[!] Target {addr} not initialized in DBus. Try scanning again.")
+            return
+
         while True:
-            # Poll info for the specific MAC
-            info_proc = subprocess.run(["bluetoothctl", "info", addr], capture_output=True, text=True, timeout=2)
-            output = info_proc.stdout
-            
-            rssi_match = re.search(r"RSSI:\s+(-?\d+)", output)
-            if rssi_match:
-                rssi_val = int(rssi_match.group(1))
+            try:
+                # Direct access to the property (provided by BlueZ over DBus)
+                rssi_val = device.RSSI
+                
                 bar_len = max(0, min(50, (rssi_val + 110) // 2))
                 bar = "█" * bar_len + "-" * (50 - bar_len)
                 print(f"\rRSSI: {rssi_val} dBm |{bar}|", end="", flush=True)
-            else:
-                print(f"\r[!] {addr} Searching (active scan)...          ", end="", flush=True)
+            except AttributeError:
+                print(f"\r[!] {addr} Searching (waiting for DBus RSSI)...          ", end="", flush=True)
+            except Exception as e:
+                # Device might have temporarily dropped off DBus
+                pass
             
-            time.sleep(0.8) # Polling rate
+            time.sleep(0.5)
             
     except KeyboardInterrupt:
         print("\n[!] Radar stopped.")
