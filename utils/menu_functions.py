@@ -22,87 +22,82 @@ def resolve_name(addr):
         return None
 
 def get_services(addr):
-    """Retrieve UUID/Services and RSSI with multi-tool fallback."""
+    """Retrieve UUID/Services and RSSI using bluetoothctl (Most Reliable)."""
     print(f"\n[!] Performing Discovery for {addr}...")
     
-    # 1. Fast Cached Check
-    print("Checking cached info via bluetoothctl...")
+    # 1. Refresh cache by scanning briefly
+    print("Refreshing device cache (5s scan)...")
     try:
-        info_proc = subprocess.run(["bluetoothctl", "info", addr], capture_output=True, text=True, timeout=3)
-        if "UUID:" in info_proc.stdout:
-            print("\n--- Cached Services/UUIDs ---")
-            for line in info_proc.stdout.splitlines():
-                if any(x in line for x in ["UUID:", "Name:", "Alias:", "Paired:", "Trusted:"]):
-                    print(line.strip())
+        subprocess.run(["bluetoothctl", "--timeout", "5", "scan", "on"], capture_output=True, text=True)
     except:
         pass
 
-    # 2. RSSI Check
-    print("\nChecking signal strength (RSSI)...")
+    # 2. Fetch Info
+    print(f"Fetching properties for {addr}...")
     try:
-        # Method: btmgmt find
-        rssi_proc = subprocess.run(["sudo", "btmgmt", "find"], capture_output=True, text=True, timeout=3)
-        for line in rssi_proc.stdout.splitlines():
-            if addr.upper() in line.upper() and "rssi" in line.lower():
-                print(f"[+] Current RSSI (btmgmt): {line.split('rssi')[-1].split()[0]} dBm")
-                break
-    except:
-        pass
-
-    # 3. GATT Service Scan
-    try:
-        print("\nScanning Live GATT Services (10s timeout)...")
-        # Try gatttool first
-        result = subprocess.run(["sudo", "gatttool", "-b", addr, "--primary"], capture_output=True, text=True, timeout=10)
-        if result.stdout:
-            print("--- Primary Services (GATT) ---")
-            print(result.stdout.strip())
+        info_proc = subprocess.run(["bluetoothctl", "info", addr], capture_output=True, text=True, timeout=5)
+        output = info_proc.stdout
+        
+        # Extract RSSI
+        rssi_match = re.search(r"RSSI:\s+(-?\d+)", output)
+        if rssi_match:
+            print(f"[+] Current RSSI: {rssi_match.group(1)} dBm")
+        
+        # Extract UUIDs
+        if "UUID:" in output:
+            print("\n--- Services & UUIDs Discovered ---")
+            for line in output.splitlines():
+                if "UUID:" in line:
+                    print(line.strip().replace("UUID: ", "-> "))
         else:
-            # Try PyBluez
-            print("[!] gatttool did not respond, trying PyBluez...")
-            services = bluetooth.find_service(address=addr)
-            if services:
-                for svc in services:
-                    print(f"Service: {svc.get('name', 'Unknown')} (UUID: {svc.get('uuid', 'N/A')})")
-            else:
-                print("[!] No active services discovered. Ensure target is in pairing mode.")
+            print("\n[!] No services found. Try pairing or connecting to the device first.")
+            print("[?] Tip: sudo bluetoothctl pair " + addr)
+            
     except Exception as e:
         print(f"Discovery error: {e}")
 
 def track_rssi(addr):
-    """Aggressive RSSI tracking using multi-protocol fallback."""
-    print(f"\n[!] Starting Real-time Proximity Tracker for {addr}...")
-    print("[!] Tip: If 'Searching...', try turning target Bluetooth OFF and ON.")
+    """Real-time RSSI tracking using live bluetoothctl scan output."""
+    print(f"\n[!] Starting Proximity Radar for {addr}")
     print("[!] Press Ctrl+C to stop.")
     
+    # We use Popen to read the scan output in real-time
     try:
-        while True:
-            rssi_val = None
-            
-            # Method 1: btmgmt find
-            res = subprocess.run(["sudo", "btmgmt", "find"], capture_output=True, text=True, timeout=3)
-            for line in res.stdout.splitlines():
-                if addr.upper() in line.upper() and "rssi" in line.lower():
-                    try:
-                        rssi_val = int(line.split('rssi')[-1].split()[0])
-                        break
-                    except: continue
-            
-            # Method 2: Fallback to hcitool scan (Classic) if still None
-            if rssi_val is None:
-                # We can't get RSSI for non-connected Classic easily, but we can check if it exists
-                pass
-
-            if rssi_val is not None:
-                bar_len = max(0, min(50, (rssi_val + 110) // 2))
-                bar = "█" * bar_len + "-" * (50 - bar_len)
-                print(f"\rRSSI: {rssi_val} dBm |{bar}|", end="", flush=True)
-            else:
-                print(f"\r[!] {addr} Searching (btmgmt)...          ", end="", flush=True)
-            
-            time.sleep(0.5)
+        # Start a scan and filter for the target address
+        # Use -S to read password from stdin if the script's run environment requires it, 
+        # but here we'll assume standard bluetoothctl permissions.
+        process = subprocess.Popen(
+            ["bluetoothctl", "scan", "on"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        
+        print("\nSearching for signal updates...")
+        
+        for line in iter(process.stdout.readline, ""):
+            if addr.upper() in line.upper() and "RSSI:" in line:
+                try:
+                    # Line looks like: [CHG] Device 0C:E6:7C:D5:8C:BC RSSI: -40
+                    rssi_val = int(line.split("RSSI:")[1].strip())
+                    
+                    bar_len = max(0, min(50, (rssi_val + 110) // 2))
+                    bar = "█" * bar_len + "-" * (50 - bar_len)
+                    print(f"\rRSSI: {rssi_val} dBm |{bar}|", end="", flush=True)
+                except:
+                    continue
+        
     except KeyboardInterrupt:
-        print("\n[!] Tracker stopped.")
+        print("\n[!] Radar stopped.")
+        # Ensure the scanning process is killed
+        try:
+            process.terminate()
+            process.wait(timeout=2)
+        except:
+            pass
+    except Exception as e:
+        print(f"\nRadar Error: {e}")
 
 def get_target_address():
     target_address = input("\nWhat is the target address? Leave blank and we will scan for you: ")
