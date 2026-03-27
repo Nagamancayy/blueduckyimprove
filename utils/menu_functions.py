@@ -12,33 +12,53 @@ def get_vendor(mac):
     prefix = mac.upper()[:8]
     return VENDORS.get(prefix, "Unknown Device")
 
-def resolve_name(addr):
-    """Try to resolve device name using hcitool as a backup."""
+def get_services(addr):
+    """Retrieve UUID/Services using gatttool."""
+    print(f"\n[!] Discovering services for {addr}...")
     try:
-        result = subprocess.run(["hcitool", "name", addr], capture_output=True, text=True, timeout=2)
-        name = result.stdout.strip()
-        return name if name else None
-    except:
-        return None
+        # Use gatttool for primary services
+        result = subprocess.run(["sudo", "gatttool", "-b", addr, "--primary"], capture_output=True, text=True, timeout=5)
+        if result.stdout:
+            print("\n--- Primary Services (GATT) ---")
+            print(result.stdout.strip())
+        else:
+            print("\n[!] No primary services found or device unreachable.")
+        
+        # Also try discovery via bluetooth.find_service (PyBluez)
+        services = bluetooth.find_service(address=addr)
+        if services:
+            print("\n--- Services (PyBluez Discovery) ---")
+            for svc in services:
+                print(f"Service: {svc.get('name', 'Unknown')}")
+                print(f"  Host: {svc.get('host')}")
+                print(f"  Description: {svc.get('description')}")
+                print(f"  Provider: {svc.get('provider')}")
+                print(f"  Protocol: {svc.get('protocol')}")
+                print(f"  Channel/PSM: {svc.get('port')}")
+                print(f"  UUID: {svc.get('uuid')}")
+                print(f"  ---")
+    except Exception as e:
+        print(f"Discovery error: {e}")
+
 def get_target_address():
     target_address = input("\nWhat is the target address? Leave blank and we will scan for you: ")
 
     if target_address == "":
         devices = scan_for_devices()
         if devices:
-            # Check if the returned list is from known devices or scanned devices
-            if len(devices) == 1 and isinstance(devices[0], tuple) and len(devices[0]) == 2:
-                # A single known device was chosen, no need to ask for selection
-                # I think it would be better to ask, as sometimes I do not want to chose this device and actually need solely to scan for actual devices.
-                confirm = input(f"Would you like to enter this device :\n{devices[0][1]} {devices[0][0]} ? (y/n)\n").strip().lower()
-                if confirm == 'y' or confirm == 'yes':
-                    return devices[0][0]
-                elif confirm != 'y' or 'yes':
-                    return
-            else:
-                # Show list of scanned devices for user selection
-                for idx, (addr, name) in enumerate(devices):
-                    print(f"{idx + 1}: Device Name: {name}, Address: {addr}")
+            # Show list of scanned devices for user selection
+            while True:
+                # Separate named from unknown for display consistency
+                named_devices = [d for d in devices if not d[1].startswith("[Unknown Device]")]
+                unknown_devices = [d for d in devices if d[1].startswith("[Unknown Device]")]
+                
+                print("\nDiscovered Devices:")
+                for idx, (addr, name) in enumerate(named_devices):
+                    print(f"{idx + 1}: Name: {name} | Address: {addr}")
+                
+                other_idx = len(named_devices) + 1
+                if unknown_devices:
+                    print(f"{other_idx}: -- Show Unknown Devices ({len(unknown_devices)} items) --")
                 
                 try:
                     selection_input = input("\nSelect a device by number (or Enter to exit): ").strip()
@@ -47,13 +67,41 @@ def get_target_address():
                         return
                     
                     selection = int(selection_input) - 1
-                    if 0 <= selection < len(devices):
-                        target_address = devices[selection][0]
+                    
+                    chosen_device = None
+                    if 0 <= selection < len(named_devices):
+                        chosen_device = named_devices[selection]
+                    elif selection == len(named_devices) and unknown_devices:
+                        print("\nUnknown Devices:")
+                        for idx, (addr, name) in enumerate(unknown_devices):
+                            print(f"{idx + 1}: Name: {name} | Address: {addr}")
+                        sub_choice = input(f"\nSelect an unknown device (1-{len(unknown_devices)}): ").strip()
+                        if sub_choice.isdigit():
+                            s_idx = int(sub_choice) - 1
+                            if 0 <= s_idx < len(unknown_devices):
+                                chosen_device = unknown_devices[s_idx]
+                    
+                    if chosen_device:
+                        addr, name = chosen_device
+                        print(f"\nTarget Selected: {name} ({addr})")
+                        print("1: Attack (Deliver Payload)")
+                        print("2: Discover Services (Scan UUIDs/GATT)")
+                        print("3: Back to List")
+                        
+                        action = input("\nSelect action (1-3): ").strip()
+                        if action == "1":
+                            return addr
+                        elif action == "2":
+                            get_services(addr)
+                            input("\nPress Enter to return to device list...")
+                            continue # Back to devices list
+                        else:
+                            continue # Back to list
                     else:
-                        print("\nInvalid selection. Exiting.")
-                        return
+                        print("\nInvalid selection. Try again.")
+                        continue
                 except ValueError:
-                    print("\nInvalid input. Please enter a number. Exiting.")
+                    print("\nInvalid input. Please enter a number.")
                     return
         else:
             return
