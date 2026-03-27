@@ -229,6 +229,13 @@ def scan_for_devices():
         if not device_list:
             print("\nNo nearby devices found.")
         else:
+            # SAVE DISCOVERED DEVICES IMMEDIATELY (Fix persistence)
+            new_discovered = [d for d in device_list if d not in known_devices]
+            if new_discovered:
+                known_devices += new_discovered
+                save_devices_to_file(known_devices)
+                print(f"[+] Saved {len(new_discovered)} new devices to known_devices.txt")
+
             # Smart Filtering: Separate named from unknown
             named_devices = [d for d in device_list if not d[1].startswith("[Unknown Device]")]
             unknown_devices = [d for d in device_list if d[1].startswith("[Unknown Device]")]
@@ -237,7 +244,6 @@ def scan_for_devices():
             for idx, (addr, name) in enumerate(named_devices):
                 print(f"{idx + 1}: Name: {name} | Address: {addr}")
             
-            final_selection_list = named_devices
             if unknown_devices:
                 other_idx = len(named_devices) + 1
                 print(f"{other_idx}: -- Show Unknown Devices ({len(unknown_devices)} items) --")
@@ -274,7 +280,6 @@ def scan_for_devices():
                 except ValueError:
                     pass
             
-            print("\nInvalid or no selection. Returning full list for main menu...")
             return device_list
 
     return []
