@@ -103,6 +103,65 @@ def track_rssi(addr):
             try: adapter.StopDiscovery()
             except: pass
 
+def track_all_named_rssi():
+    """Display real-time RSSI dashboard for all named devices in range."""
+    print(f"\n[!] Starting Global Proximity Dashboard (Named Devices Only)")
+    print("[!] Pulse-monitoring all DBus device properties...")
+    print("[!] Press Ctrl+C to stop.")
+    
+    adapter = None
+    try:
+        bus = SystemBus()
+        # 1. Start discovery at the adapter level to populate all devices
+        adapter = bus.get("org.bluez", "/org/bluez/hci0")
+        adapter.StartDiscovery()
+        
+        while True:
+            # Clear screen for a dashboard feel
+            os.system('clear')
+            print("=== BlueDucky Global Proximity Dashboard (Ctrl+C to Exit) ===")
+            print("-" * 65)
+            print(f"{'Device Name':<25} | {'RSSI':<8} | {'Signal Graph'}")
+            print("-" * 65)
+            
+            # Get all objects from BlueZ
+            mngr = bus.get("org.bluez", "/")
+            objs = mngr.GetManagedObjects()
+            
+            # Map for sorting and display
+            named_list = []
+            
+            for path, interfaces in objs.items():
+                if "org.bluez.Device1" in interfaces:
+                    props = interfaces["org.bluez.Device1"]
+                    name = props.get("Name", props.get("Alias", None))
+                    # Only show named devices as requested
+                    if name and not name.startswith("00-00-00"): # Basic filter for no-name/MAC-only
+                        rssi = props.get("RSSI", -100)
+                        named_list.append((name, path.split('/')[-1].replace('dev_', '').replace('_', ':'), rssi))
+            
+            # Sort by RSSI (strongest first)
+            named_list.sort(key=lambda x: x[2], reverse=True)
+            
+            for name, addr, rssi in named_list:
+                bar_len = max(0, min(30, (rssi + 110) // 3))
+                bar = "█" * bar_len + "-" * (30 - bar_len)
+                print(f"{name[:25]:<25} | {rssi:>4} dBm | {bar}")
+            
+            if not named_list:
+                print("\n[!] No named devices found yet. Still scanning...")
+                
+            time.sleep(1) # Refresh rate
+            
+    except KeyboardInterrupt:
+        print("\n[!] Dashboard stopped.")
+    except Exception as e:
+        print(f"\nDashboard Error: {e}")
+    finally:
+        if adapter:
+            try: adapter.StopDiscovery()
+            except: pass
+
 def get_target_address():
     target_address = input("\nWhat is the target address? Leave blank and we will scan for you: ")
 
