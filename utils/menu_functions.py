@@ -10,6 +10,8 @@ VENDORS = {
 
 def get_vendor(mac):
     prefix = mac.upper()[:8]
+    return VENDORS.get(prefix, "Unknown Device")
+
 def resolve_name(addr):
     """Try to resolve device name using hcitool as a backup."""
     try:
