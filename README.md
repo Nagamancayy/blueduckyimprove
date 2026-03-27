@@ -73,6 +73,11 @@ Welcome dear HACK3RS! This version maintains the original power of BlueDucky but
 ᯓ➤ sudo python3 BlueDucky.py
 ```
 
+### 🔍 Scanning Modes
+Now you can choose your scanning strategy:
+- **Quick Scan**: The original, fast Classic Bluetooth discovery (8 seconds).
+- **Deep Scan**: Detailed 15-second scan combining **Classic + BLE**. Includes **Vendor Identification** (OUI) to guess nameless devices (e.g., Identifying potential iPhones).
+
 ## ⚙️ Operational Steps 🕹️
 ᯓ➤ After starting, it prompts for the target MAC address. (Use `hcitool lescan` or `bluetoothctl` to find targets).
 ᯓ➤ Leave it blank to start auto-scanning.

@@ -132,60 +132,63 @@ def scan_for_devices():
             device_choice = int(input("Enter the number of the device: "))
             return [known_devices[device_choice - 1]]
 
-    print("\n[!] Starting Deep Scan (Classic + BLE) for 15 seconds...")
-    unique_devices = {} # Use dict to maintain uniqueness {addr: name}
+    print("\nSelect Scan Mode:")
+    print("1: Quick Scan (Classic Only, Original Method)")
+    print("2: Deep Scan (Classic + BLE, with Vendor Identification)")
+    scan_choice = input("Enter choice (1/2): ")
 
-    # 1. Classic Scan via PyBluez
-    try:
-        nearby_classic = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True)
-        for addr, name in nearby_classic:
-            unique_devices[addr] = name if name else f"[{get_vendor(addr)}]"
-    except Exception as e:
-        log.warning(f"Classic scan failed: {e}")
+    unique_devices = {} 
 
-    # 2. BLE Scan via hcitool (Passive/Active)
-    print("Checking for BLE devices (iPhone/Modern Android)...")
-    try:
-        # Run lescan for a short duration
-        lescan_proc = subprocess.Popen(["sudo", "hcitool", "lescan", "--duplicates"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        time.sleep(5)
-        os.kill(lescan_proc.pid, signal.SIGINT)
-        out, _ = lescan_proc.communicate()
-        
-        for line in out.decode('utf-8', errors='ignore').splitlines():
-            # Format: MAC NAME or just MAC
-            parts = line.split(maxsplit=1)
-            if len(parts) >= 1 and is_valid_mac_address(parts[0]):
-                addr = parts[0]
-                name = parts[1] if len(parts) > 1 and parts[1] != "(unknown)" else None
-                
-                if addr not in unique_devices or (unique_devices[addr].startswith("[") and name):
-                    unique_devices[addr] = name if name else f"[{get_vendor(addr)}]"
-    except Exception as e:
-        log.warning(f"BLE scan failed: {e}")
+    if scan_choice == "1":
+        print("\n[!] Starting Quick Scan (8 seconds)...")
+        try:
+            nearby_classic = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True)
+            for addr, name in nearby_classic:
+                unique_devices[addr] = name if name else f"[{get_vendor(addr)}]"
+        except Exception as e:
+            log.warning(f"Quick scan failed: {e}")
+    else:
+        print("\n[!] Starting Deep Scan (Classic + BLE) for 15 seconds...")
+        # 1. Classic Scan
+        try:
+            nearby_classic = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True)
+            for addr, name in nearby_classic:
+                unique_devices[addr] = name if name else f"[{get_vendor(addr)}]"
+        except Exception as e:
+            log.warning(f"Classic scan failed: {e}")
+
+        # 2. BLE Scan
+        print("Checking for BLE devices (iPhone/Modern Android)...")
+        try:
+            lescan_proc = subprocess.Popen(["sudo", "hcitool", "lescan", "--duplicates"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            time.sleep(5)
+            os.kill(lescan_proc.pid, signal.SIGINT)
+            out, _ = lescan_proc.communicate()
+            
+            for line in out.decode('utf-8', errors='ignore').splitlines():
+                parts = line.split(maxsplit=1)
+                if len(parts) >= 1 and is_valid_mac_address(parts[0]):
+                    addr = parts[0]
+                    name = parts[1] if len(parts) > 1 and parts[1] != "(unknown)" else None
+                    if addr not in unique_devices or (unique_devices[addr].startswith("[") and name):
+                        unique_devices[addr] = name if name else f"[{get_vendor(addr)}]"
+        except Exception as e:
+            log.warning(f"BLE scan failed: {e}")
 
     device_list = [(addr, name) for addr, name in unique_devices.items()]
     
     if not device_list:
         print("\nNo nearby devices found.")
     else:
-        # We only show devices that have a name OR were identified by OUI as a known vendor
         print("\nFound {} unique device(s):".format(len(device_list)))
-        filtered_list = []
-        for addr, name in device_list:
-            # Re-filtering: if it has a real name or is a recognized vendor, it stays. 
-            # Otherwise we keep it but it might be "Unknown Device"
-            filtered_list.append((addr, name))
-            
-        for idx, (addr, name) in enumerate(filtered_list):
+        for idx, (addr, name) in enumerate(device_list):
             print(f"{idx + 1}: Name: {name} | Address: {addr}")
         
-        # Update known devices with unique new ones
-        new_devices = [d for d in filtered_list if d not in known_devices]
+        new_devices = [d for d in device_list if d not in known_devices]
         if new_devices:
             save_devices_to_file(known_devices + new_devices)
             
-        return filtered_list
+        return device_list
 
     return []
 
