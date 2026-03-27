@@ -2,7 +2,25 @@ import os, bluetooth,re, subprocess, time, curses, signal
 import logging as log
 from pydbus import SystemBus
 
-# ... existing VENDORS dict ...
+# Vendor OUI Dictionary for Identification
+VENDORS = {
+    "34:AB:37": "Apple/iPhone?", "AC:3C:0B": "Apple/iPhone?", "F0:D1:A9": "Apple/iPhone?",
+    "00:1A:7D": "CSR Dongle?", "BC:D1:D3": "Samsung?", "94:8B:C1": "Samsung?",
+    "D8:6C:63": "Google/Pixel?", "CC:F9:E8": "Xiaomi?", "8C:85:90": "Huawei?",
+}
+
+def get_vendor(mac):
+    prefix = mac.upper()[:8]
+    return VENDORS.get(prefix, "Unknown Device")
+
+def resolve_name(addr):
+    """Try to resolve device name using hcitool as a backup."""
+    try:
+        result = subprocess.run(["hcitool", "name", addr], capture_output=True, text=True, timeout=2)
+        name = result.stdout.strip()
+        return name if name else None
+    except:
+        return None
 
 def get_services(addr):
     """Retrieve UUID/Services and RSSI using native DBus (Most Reliable)."""
