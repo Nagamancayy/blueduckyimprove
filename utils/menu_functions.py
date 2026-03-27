@@ -29,62 +29,58 @@ def get_services(addr):
     scan_proc = None
     try:
         bus = SystemBus()
-        # Ensure adapter name is correct (usually hci0)
-        adapter_path = "/org/bluez/hci0"
-        device_path = f"{adapter_path}/dev_{addr.replace(':', '_')}"
-        
-        # 1. Start background scan using TTY spoofing (it needs a terminal to stay alive)
-        print("Spoofing TTY for background scan (bluetoothctl)...")
-        # Use 'script' to trick bluetoothctl into thinking it's in a TTY
-        scan_proc = subprocess.Popen(["script", "-qc", "bluetoothctl scan on", "/dev/null"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(3)
-
-        # 2. Access device object directly via DBus
-        try:
-            device = bus.get("org.bluez", device_path)
-            
-            # UUIDs
-            uuids = getattr(device, "UUIDs", [])
-            if uuids:
-                print("\n--- Services & UUIDs (Native DBus) ---")
-                for u in uuids:
-                    print(f"-> {u}")
-            
-            # RSSI
-            rssi = getattr(device, "RSSI", None)
-            if rssi is not None:
-                print(f"[+] Current RSSI: {rssi} dBm")
-            else:
-                print("[!] RSSI not yet available in DBus (Device might be out of range).")
-                
-        except Exception as e:
-            print(f"[!] Could not access DBus device path: {e}")
-            print("[?] Tip: Ensure the device was discovered in the main scan.")
-
-    except Exception as e:
-        print(f"Discovery error: {e}")
-    finally:
-        if scan_proc:
-            scan_proc.terminate()
-            scan_proc.wait()
-
-def track_rssi(addr):
-    """Real-time RSSI tracking using native DBus property monitoring."""
-    print(f"\n[!] Starting Proximity Radar (DBus Backend) for {addr}")
-    print("[!] Reading native org.bluez.Device1.RSSI updates...")
-    print("[!] Press Ctrl+C to stop.")
+def get_services(addr):
+    """Retrieve UUID/Services and RSSI using native DBus (Most Reliable)."""
+    print(f"\n[!] Performing Discovery for {addr}...")
     
-    scan_proc = None
+    adapter = None
     try:
         bus = SystemBus()
-        adapter_path = "/org/bluez/hci0"
-        device_path = f"{adapter_path}/dev_{addr.replace(':', '_')}"
+        # 1. Start discovery at the adapter level
+        print("Starting native DBus discovery...")
+        adapter = bus.get("org.bluez", "/org/bluez/hci0")
+        adapter.StartDiscovery()
+        time.sleep(3) # Let properties populate
         
-        # Start persistent background scan (TTY spoofed) to keep DBus properties live
-        print("Activating background TTY-spoofed discovery...")
-        scan_proc = subprocess.Popen(["script", "-qc", "bluetoothctl scan on", "/dev/null"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        device_path = f"/org/bluez/hci0/dev_{addr.replace(':', '_')}"
+        device = bus.get("org.bluez", device_path)
         
-        # Get device proxy
+        # Extract properties
+        uuids = getattr(device, "UUIDs", [])
+        if uuids:
+            print("\n--- Services & UUIDs (Native DBus) ---")
+            for u in uuids:
+                print(f"-> {u}")
+        
+        rssi = getattr(device, "RSSI", None)
+        if rssi is not None:
+            print(f"[+] Current RSSI: {rssi} dBm")
+        else:
+            print("[!] RSSI not yet available. Device might be hidden or out of range.")
+                
+    except Exception as e:
+        print(f"Discovery error: {e}")
+        print("[?] Tip: Make sure the device is in discoverable/pairing mode.")
+    finally:
+        if adapter:
+            try: adapter.StopDiscovery()
+            except: pass
+
+def track_rssi(addr):
+    """Real-time RSSI tracking using native DBus StartDiscovery pulse."""
+    print(f"\n[!] Starting Proximity Radar (Native DBus Backend) for {addr}")
+    print("[!] Reading native org.bluez.Device1.RSSI properties...")
+    print("[!] Press Ctrl+C to stop.")
+    
+    adapter = None
+    try:
+        bus = SystemBus()
+        # 1. Start persistent discovery
+        print("Activating native discovery session...")
+        adapter = bus.get("org.bluez", "/org/bluez/hci0")
+        adapter.StartDiscovery()
+        
+        device_path = f"/org/bluez/hci0/dev_{addr.replace(':', '_')}"
         try:
             device = bus.get("org.bluez", device_path)
         except:
@@ -93,16 +89,14 @@ def track_rssi(addr):
 
         while True:
             try:
-                # Direct access to the property (provided by BlueZ over DBus)
+                # Direct property access (kept live by StartDiscovery)
                 rssi_val = device.RSSI
-                
                 bar_len = max(0, min(50, (rssi_val + 110) // 2))
                 bar = "█" * bar_len + "-" * (50 - bar_len)
                 print(f"\rRSSI: {rssi_val} dBm |{bar}|", end="", flush=True)
             except AttributeError:
-                print(f"\r[!] {addr} Searching (waiting for DBus RSSI)...          ", end="", flush=True)
-            except Exception as e:
-                # Device might have temporarily dropped off DBus
+                print(f"\r[!] {addr} Searching... (Waiting for DBus property)    ", end="", flush=True)
+            except Exception:
                 pass
             
             time.sleep(0.5)
@@ -112,9 +106,9 @@ def track_rssi(addr):
     except Exception as e:
         print(f"\nRadar Error: {e}")
     finally:
-        if scan_proc:
-            scan_proc.terminate()
-            scan_proc.wait()
+        if adapter:
+            try: adapter.StopDiscovery()
+            except: pass
 
 def get_target_address():
     target_address = input("\nWhat is the target address? Leave blank and we will scan for you: ")
