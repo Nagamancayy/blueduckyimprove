@@ -22,19 +22,18 @@ def resolve_name(addr):
         return None
 
 def get_services(addr):
-    """Retrieve UUID/Services and RSSI using bluetoothctl (Most Reliable)."""
+    """Retrieve UUID/Services and RSSI using persistent background scan (Most Reliable)."""
     print(f"\n[!] Performing Discovery for {addr}...")
     
-    # 1. Refresh cache by scanning briefly
-    print("Refreshing device cache (5s scan)...")
+    scan_proc = None
     try:
-        subprocess.run(["bluetoothctl", "--timeout", "5", "scan", "on"], capture_output=True, text=True)
-    except:
-        pass
+        # 1. Start background scan to ensure data is fresh
+        print("Starting background scan...")
+        scan_proc = subprocess.Popen(["bluetoothctl", "scan", "on"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(3) # Give it a moment to find the device
 
-    # 2. Fetch Info
-    print(f"Fetching properties for {addr}...")
-    try:
+        # 2. Fetch Info while scan is active
+        print(f"Fetching properties for {addr}...")
         info_proc = subprocess.run(["bluetoothctl", "info", addr], capture_output=True, text=True, timeout=5)
         output = info_proc.stdout
         
@@ -50,54 +49,50 @@ def get_services(addr):
                 if "UUID:" in line:
                     print(line.strip().replace("UUID: ", "-> "))
         else:
-            print("\n[!] No services found. Try pairing or connecting to the device first.")
-            print("[?] Tip: sudo bluetoothctl pair " + addr)
+            print("\n[!] No services found. Device might be hidden or in non-discoverable mode.")
             
     except Exception as e:
         print(f"Discovery error: {e}")
+    finally:
+        if scan_proc:
+            scan_proc.terminate()
+            scan_proc.wait()
 
 def track_rssi(addr):
-    """Real-time RSSI tracking using live bluetoothctl scan output."""
+    """Real-time RSSI tracking with a persistent background scan session."""
     print(f"\n[!] Starting Proximity Radar for {addr}")
+    print("[!] Pulse-polling bluetoothctl info while scanning...")
     print("[!] Press Ctrl+C to stop.")
     
-    # We use Popen to read the scan output in real-time
+    scan_proc = None
     try:
-        # Start a scan and filter for the target address
-        # Use -S to read password from stdin if the script's run environment requires it, 
-        # but here we'll assume standard bluetoothctl permissions.
-        process = subprocess.Popen(
-            ["bluetoothctl", "scan", "on"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1
-        )
+        # Start persistent background scan
+        scan_proc = subprocess.Popen(["bluetoothctl", "scan", "on"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        print("\nSearching for signal updates...")
-        
-        for line in iter(process.stdout.readline, ""):
-            if addr.upper() in line.upper() and "RSSI:" in line:
-                try:
-                    # Line looks like: [CHG] Device 0C:E6:7C:D5:8C:BC RSSI: -40
-                    rssi_val = int(line.split("RSSI:")[1].strip())
-                    
-                    bar_len = max(0, min(50, (rssi_val + 110) // 2))
-                    bar = "█" * bar_len + "-" * (50 - bar_len)
-                    print(f"\rRSSI: {rssi_val} dBm |{bar}|", end="", flush=True)
-                except:
-                    continue
-        
+        while True:
+            # Poll info for the specific MAC
+            info_proc = subprocess.run(["bluetoothctl", "info", addr], capture_output=True, text=True, timeout=2)
+            output = info_proc.stdout
+            
+            rssi_match = re.search(r"RSSI:\s+(-?\d+)", output)
+            if rssi_match:
+                rssi_val = int(rssi_match.group(1))
+                bar_len = max(0, min(50, (rssi_val + 110) // 2))
+                bar = "█" * bar_len + "-" * (50 - bar_len)
+                print(f"\rRSSI: {rssi_val} dBm |{bar}|", end="", flush=True)
+            else:
+                print(f"\r[!] {addr} Searching (active scan)...          ", end="", flush=True)
+            
+            time.sleep(0.8) # Polling rate
+            
     except KeyboardInterrupt:
         print("\n[!] Radar stopped.")
-        # Ensure the scanning process is killed
-        try:
-            process.terminate()
-            process.wait(timeout=2)
-        except:
-            pass
     except Exception as e:
         print(f"\nRadar Error: {e}")
+    finally:
+        if scan_proc:
+            scan_proc.terminate()
+            scan_proc.wait()
 
 def get_target_address():
     target_address = input("\nWhat is the target address? Leave blank and we will scan for you: ")
