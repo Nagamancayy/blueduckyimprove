@@ -10,7 +10,14 @@ VENDORS = {
 
 def get_vendor(mac):
     prefix = mac.upper()[:8]
-    return VENDORS.get(prefix, "Unknown Device")
+def resolve_name(addr):
+    """Try to resolve device name using hcitool as a backup."""
+    try:
+        result = subprocess.run(["hcitool", "name", addr], capture_output=True, text=True, timeout=2)
+        name = result.stdout.strip()
+        return name if name else None
+    except:
+        return None
 
 def get_services(addr):
     """Retrieve UUID/Services and RSSI."""
