@@ -229,14 +229,52 @@ def scan_for_devices():
         if not device_list:
             print("\nNo nearby devices found.")
         else:
-            print("\nFound {} unique device(s):".format(len(device_list)))
-            for idx, (addr, name) in enumerate(device_list):
+            # Smart Filtering: Separate named from unknown
+            named_devices = [d for d in device_list if not d[1].startswith("[Unknown Device]")]
+            unknown_devices = [d for d in device_list if d[1].startswith("[Unknown Device]")]
+            
+            print("\nFound {} unique device(s) with names:".format(len(named_devices)))
+            for idx, (addr, name) in enumerate(named_devices):
                 print(f"{idx + 1}: Name: {name} | Address: {addr}")
             
-            new_devices = [d for d in device_list if d not in known_devices]
-            if new_devices:
-                save_devices_to_file(known_devices + new_devices)
+            final_selection_list = named_devices
+            if unknown_devices:
+                other_idx = len(named_devices) + 1
+                print(f"{other_idx}: -- Show Unknown Devices ({len(unknown_devices)} items) --")
                 
+                try:
+                    choice = input("\nSelect a device (or Enter for unknown list): ").strip()
+                    if not choice: # User just pressed enter, or wants unknown
+                        print("\nShowing Unknown Devices:")
+                        for idx, (addr, name) in enumerate(unknown_devices):
+                            print(f"{idx + 1}: Name: {name} | Address: {addr}")
+                        
+                        sub_choice = input(f"\nSelect an unknown device by number (1-{len(unknown_devices)}): ").strip()
+                        if sub_choice.isdigit():
+                            s_idx = int(sub_choice) - 1
+                            if 0 <= s_idx < len(unknown_devices):
+                                return [unknown_devices[s_idx]]
+                        return []
+                    
+                    if choice.isdigit():
+                        c_idx = int(choice) - 1
+                        if c_idx == len(named_devices) and unknown_devices:
+                            # User specifically chose the "Show Unknown" option
+                            print("\nShowing Unknown Devices:")
+                            for idx, (addr, name) in enumerate(unknown_devices):
+                                print(f"{idx + 1}: Name: {name} | Address: {addr}")
+                            sub_choice = input(f"\nSelect an unknown device by number (1-{len(unknown_devices)}): ").strip()
+                            if sub_choice.isdigit():
+                                s_idx = int(sub_choice) - 1
+                                if 0 <= s_idx < len(unknown_devices):
+                                    return [unknown_devices[s_idx]]
+                            return []
+                        elif 0 <= c_idx < len(named_devices):
+                            return [named_devices[c_idx]]
+                except ValueError:
+                    pass
+            
+            print("\nInvalid or no selection. Returning full list for main menu...")
             return device_list
 
     return []
