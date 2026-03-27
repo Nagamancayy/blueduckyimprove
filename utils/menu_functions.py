@@ -124,11 +124,15 @@ def get_target_address():
                     print(f"{other_idx}: -- Show Unknown Devices ({len(unknown_devices)} items) --")
                 
                 try:
-                    selection_input = input("\nSelect a device by number (or Enter to exit): ").strip()
+                    selection_input = input("\nSelect a device by number, 'm' for Proximity Map (or Enter to exit): ").strip().lower()
                     if not selection_input:
                         print("\nNo selection made. Exiting.")
                         return
                     
+                    if selection_input == 'm':
+                        track_all_named_rssi()
+                        continue
+
                     selection = int(selection_input) - 1
                     
                     chosen_device = None
