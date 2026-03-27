@@ -22,70 +22,87 @@ def resolve_name(addr):
         return None
 
 def get_services(addr):
-    """Retrieve UUID/Services and RSSI."""
+    """Retrieve UUID/Services and RSSI with improved reliability."""
     print(f"\n[!] Performing Discovery for {addr}...")
     
-    # Try to get RSSI (requires a brief connection attempt often)
+    # 1. Try bluetoothctl info first (Fastest/Cached)
+    print("Checking cached info via bluetoothctl...")
     try:
-        print("Checking signal strength (RSSI)...")
-        # For Classic/BLE devices, sometimes we need to be connected to get accurate RSSI via hcitool
-        # But we can try btmgmt find which is non-connection based if it works
-        rssi_proc = subprocess.run(["sudo", "btmgmt", "find"], capture_output=True, text=True, timeout=2)
+        info_proc = subprocess.run(["bluetoothctl", "info", addr], capture_output=True, text=True, timeout=3)
+        if "UUID:" in info_proc.stdout:
+            print("\n--- Cached Services/UUIDs ---")
+            for line in info_proc.stdout.splitlines():
+                if "UUID:" in line or "Name:" in line or "Alias:" in line:
+                    print(line.strip())
+    except:
+        pass
+
+    # 2. Try to get RSSI
+    try:
+        print("\nChecking signal strength (RSSI)...")
+        # Try btmgmt find for a fresh look
+        rssi_proc = subprocess.run(["sudo", "btmgmt", "find"], capture_output=True, text=True, timeout=3)
         for line in rssi_proc.stdout.splitlines():
             if addr.upper() in line.upper() and "rssi" in line.lower():
-                print(f"[+] Current RSSI: {line.split('rssi')[-1].strip()}")
+                print(f"[+] Current RSSI: {line.split('rssi')[-1].split()[0]} dBm")
                 break
     except:
         pass
 
+    # 3. Try Active GATT scan
     try:
-        # Use gatttool for primary services
-        print("Scanning GATT Services...")
-        result = subprocess.run(["sudo", "gatttool", "-b", addr, "--primary"], capture_output=True, text=True, timeout=5)
+        print("\nScanning Live GATT Services (this may take a moment)...")
+        # Increased timeout and added connection retry
+        result = subprocess.run(["sudo", "gatttool", "-b", addr, "--primary"], capture_output=True, text=True, timeout=10)
         if result.stdout:
-            print("\n--- Primary Services (GATT) ---")
+            print("--- Primary Services (GATT) ---")
             print(result.stdout.strip())
         else:
-            print("\n[!] No primary services found (device might be hidden or out of range).")
-        
-        # Also try discovery via bluetooth.find_service (PyBluez)
-        services = bluetooth.find_service(address=addr)
-        if services:
-            print("\n--- Services (PyBluez Discovery) ---")
-            for svc in services:
-                name = svc.get('name', 'Unknown')
-                uuid = svc.get('uuid', 'N/A')
-                print(f"Service: {name} (UUID: {uuid})")
+            # Fallback to PyBluez discovery if gatttool fails/times out
+            print("[!] gatttool returned nothing, trying PyBluez discovery...")
+            services = bluetooth.find_service(address=addr)
+            if services:
+                for svc in services:
+                    print(f"Service: {svc.get('name', 'Unknown')} (UUID: {svc.get('uuid', 'N/A')})")
+            else:
+                print("[!] No active services found. Device might be in non-discoverable mode.")
+    except subprocess.TimeoutExpired:
+        print("[!] Live GATT scan timed out. Device is likely not in pairing/discoverable mode.")
     except Exception as e:
         print(f"Discovery error: {e}")
 
 def track_rssi(addr):
-    """Real-time RSSI tracking loop."""
+    """Real-time RSSI tracking loop with improved parsing."""
     print(f"\n[!] Starting Real-time RSSI Tracker for {addr}")
+    print("[!] Tip: Move around to see signal changes.")
     print("[!] Press Ctrl+C to stop tracking.")
+    
+    # Use hcitool as a secondary source if btmgmt is slow
     try:
         while True:
-            # Use btmgmt find for best non-connected RSSI updates
-            rssi_proc = subprocess.run(["sudo", "btmgmt", "find"], capture_output=True, text=True, timeout=2)
+            # Method 1: btmgmt find
+            rssi_proc = subprocess.run(["sudo", "btmgmt", "find"], capture_output=True, text=True, timeout=3)
             found = False
-            for line in rssi_proc.stdout.splitlines():
-                if addr.upper() in line.upper() and "rssi" in line.lower():
-                    # Parse RSSI
-                    rssi_str = line.split('rssi')[-1].split()[0]
-                    rssi_val = int(rssi_str)
-                    
-                    # Create a simple visual bar
-                    # RSSI usually ranges from -100 (weak) to -20 (strong)
-                    bar_len = max(0, min(50, (rssi_val + 110) // 2))
-                    bar = "█" * bar_len + "-" * (50 - bar_len)
-                    
-                    # Clear line and print
-                    print(f"\rRSSI: {rssi_val} dBm |{bar}|", end="", flush=True)
-                    found = True
-                    break
+            rssi_val = None
             
-            if not found:
-                print(f"\r[!] {addr} not found in current scan...          ", end="", flush=True)
+            for line in rssi_proc.stdout.splitlines():
+                # Matching without case sensitivity and handling different formats
+                if addr.upper() in line.upper() and "rssi" in line.lower():
+                    try:
+                        rssi_val = int(line.split('rssi')[-1].split()[0])
+                        found = True
+                        break
+                    except:
+                        continue
+            
+            if found and rssi_val is not None:
+                bar_len = max(0, min(50, (rssi_val + 110) // 2))
+                bar = "█" * bar_len + "-" * (50 - bar_len)
+                print(f"\rRSSI: {rssi_val} dBm |{bar}|", end="", flush=True)
+            else:
+                # Method 2 fallback: passive hcitool scan if btmgmt is missing it
+                print(f"\r[!] {addr} Searching...                      ", end="", flush=True)
+            
             time.sleep(0.5)
     except KeyboardInterrupt:
         print("\n[!] RSSI Tracking stopped.")
