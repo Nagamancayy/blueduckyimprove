@@ -13,30 +13,40 @@ def get_vendor(mac):
     return VENDORS.get(prefix, "Unknown Device")
 
 def get_services(addr):
-    """Retrieve UUID/Services using gatttool."""
-    print(f"\n[!] Discovering services for {addr}...")
+    """Retrieve UUID/Services and RSSI."""
+    print(f"\n[!] Performing Discovery for {addr}...")
+    
+    # Try to get RSSI (requires a brief connection attempt often)
+    try:
+        print("Checking signal strength (RSSI)...")
+        # For Classic/BLE devices, sometimes we need to be connected to get accurate RSSI via hcitool
+        # But we can try btmgmt find which is non-connection based if it works
+        rssi_proc = subprocess.run(["sudo", "btmgmt", "find"], capture_output=True, text=True, timeout=2)
+        for line in rssi_proc.stdout.splitlines():
+            if addr.upper() in line.upper() and "rssi" in line.lower():
+                print(f"[+] Current RSSI: {line.split('rssi')[-1].strip()}")
+                break
+    except:
+        pass
+
     try:
         # Use gatttool for primary services
+        print("Scanning GATT Services...")
         result = subprocess.run(["sudo", "gatttool", "-b", addr, "--primary"], capture_output=True, text=True, timeout=5)
         if result.stdout:
             print("\n--- Primary Services (GATT) ---")
             print(result.stdout.strip())
         else:
-            print("\n[!] No primary services found or device unreachable.")
+            print("\n[!] No primary services found (device might be hidden or out of range).")
         
         # Also try discovery via bluetooth.find_service (PyBluez)
         services = bluetooth.find_service(address=addr)
         if services:
             print("\n--- Services (PyBluez Discovery) ---")
             for svc in services:
-                print(f"Service: {svc.get('name', 'Unknown')}")
-                print(f"  Host: {svc.get('host')}")
-                print(f"  Description: {svc.get('description')}")
-                print(f"  Provider: {svc.get('provider')}")
-                print(f"  Protocol: {svc.get('protocol')}")
-                print(f"  Channel/PSM: {svc.get('port')}")
-                print(f"  UUID: {svc.get('uuid')}")
-                print(f"  ---")
+                name = svc.get('name', 'Unknown')
+                uuid = svc.get('uuid', 'N/A')
+                print(f"Service: {name} (UUID: {uuid})")
     except Exception as e:
         print(f"Discovery error: {e}")
 
