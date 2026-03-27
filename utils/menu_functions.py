@@ -26,13 +26,6 @@ def get_services(addr):
     """Retrieve UUID/Services and RSSI using native DBus (Most Reliable)."""
     print(f"\n[!] Performing Discovery for {addr}...")
     
-    scan_proc = None
-    try:
-        bus = SystemBus()
-def get_services(addr):
-    """Retrieve UUID/Services and RSSI using native DBus (Most Reliable)."""
-    print(f"\n[!] Performing Discovery for {addr}...")
-    
     adapter = None
     try:
         bus = SystemBus()
