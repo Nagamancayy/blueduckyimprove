@@ -34,8 +34,9 @@ def get_services(addr):
         device_path = f"{adapter_path}/dev_{addr.replace(':', '_')}"
         
         # 1. Start background scan to refresh DBus properties
-        print("Starting background scan...")
-        scan_proc = subprocess.Popen(["bluetoothctl", "scan", "on"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("Starting background discovery (btmgmt)...")
+        # Use btmgmt find which is designed for robust background use
+        scan_proc = subprocess.Popen(["sudo", "btmgmt", "find"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(3)
 
         # 2. Access device object directly via DBus
@@ -80,7 +81,8 @@ def track_rssi(addr):
         device_path = f"{adapter_path}/dev_{addr.replace(':', '_')}"
         
         # Start persistent background scan to keep DBus properties live
-        scan_proc = subprocess.Popen(["bluetoothctl", "scan", "on"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("Activating background discovery pulse...")
+        scan_proc = subprocess.Popen(["sudo", "btmgmt", "find"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         # Get device proxy
         try:
