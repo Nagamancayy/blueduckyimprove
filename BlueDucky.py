@@ -686,17 +686,9 @@ def main():
             hid_interrupt_client = setup_and_connect(connection_manager, target_address, adapter_id)
             process_duckyscript(hid_interrupt_client, duckyscript, current_line, current_position)
             
-            if is_annoy_mode:
-                log.info("Payload sent in Annoy mode. Re-initiating spam...")
-                current_line = 0 # Restart payload if needed, or just sleep
-                current_position = 0
-                connection_manager.close_all()
-                time.sleep(2)
-                continue
-            else:
-                log.info("Payload sent successfully. Exiting.")
-                time.sleep(2)
-                break  # Exit loop if successful in Normal mode
+            log.info("Payload sent successfully. Exiting.")
+            time.sleep(2)
+            break  # Exit loop regardless of mode once payload is sent
                 
         except ReconnectionRequiredException as e:
             log.info("Reconnection required. Attempting to reconnect...")
