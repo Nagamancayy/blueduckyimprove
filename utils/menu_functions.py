@@ -142,14 +142,31 @@ def scan_for_devices():
     # Load known devices
     known_devices = load_known_devices()
     if known_devices:
-        print("\nKnown devices:")
-        for idx, (addr, name) in enumerate(known_devices):
-            print(f"{idx + 1}: Device Name: {name} | Address: {addr}")
+        known_named = [d for d in known_devices if not d[1].startswith("[Unknown Device]")]
+        known_unknown = [d for d in known_devices if d[1].startswith("[Unknown Device]")]
+        
+        if known_named:
+            print("\nKnown devices (Named):")
+            for idx, (addr, name) in enumerate(known_named):
+                print(f"{idx + 1}: Name: {name} | Address: {addr}")
 
-        use_known_device = input("\nDo you want to use one of these known devices? (yes/no): ")
-        if use_known_device.lower() == 'yes':
-            device_choice = int(input("Enter the number of the device: "))
-            return [known_devices[device_choice - 1]]
+            use_known = input("\nUse one of these named devices? (yes/no/other): ").lower()
+            if use_known == 'yes':
+                choice = int(input("Enter number: "))
+                return [known_named[choice - 1]]
+            elif use_known == 'other' and known_unknown:
+                print("\nKnown devices (Unknown):")
+                for idx, (addr, name) in enumerate(known_unknown):
+                    print(f"{idx + 1}: Address: {addr}")
+                choice = int(input("Enter number: "))
+                return [known_unknown[choice - 1]]
+        elif known_unknown:
+            use_other = input(f"\nYou have {len(known_unknown)} unknown devices saved. See them? (yes/no): ").lower()
+            if use_other == 'yes':
+                for idx, (addr, name) in enumerate(known_unknown):
+                    print(f"{idx + 1}: Address: {addr}")
+                choice = int(input("Enter number: "))
+                return [known_unknown[choice - 1]]
 
     print("\nSelect Scan Mode:")
     print("1: Quick Scan (Classic Only, Original Method)")
