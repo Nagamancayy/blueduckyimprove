@@ -319,6 +319,41 @@ def get_yes_no():
     curses.endwin()
     return response
 
+def perform_deep_scan(duration_classic=8, duration_ble=5):
+    """Core Deep Scan engine (Classic + BLE). Returns dict of {addr: name}."""
+    unique_devices = {}
+    
+    # 1. Classic Scan
+    log.info(f"Scanning Classic Bluetooth ({duration_classic}s)...")
+    try:
+        nearby_classic = bluetooth.discover_devices(duration=duration_classic, lookup_names=True, flush_cache=True, lookup_class=True)
+        for addr, name, _ in nearby_classic:
+            unique_devices[addr] = name if name else f"[Unknown Device] {get_vendor(addr)}"
+    except Exception as e:
+        log.warning(f"Classic scan failed: {e}")
+
+    # 2. BLE Scan
+    log.info(f"Checking for BLE devices ({duration_ble}s)...")
+    try:
+        # Use a non-blocking approach for lescan
+        lescan_proc = subprocess.Popen(["sudo", "hcitool", "lescan", "--duplicates"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        time.sleep(duration_ble)
+        os.kill(lescan_proc.pid, signal.SIGINT)
+        
+        stdout, _ = lescan_proc.communicate()
+        for line in stdout.decode('utf-8', errors='ignore').split('\n'):
+            line = line.strip()
+            if line and "LE Scan" not in line:
+                parts = line.split(' ', 1)
+                if len(parts) == 2:
+                    addr, name = parts
+                    if addr not in unique_devices or not unique_devices[addr]:
+                        unique_devices[addr] = name if name != "(unknown)" else f"[Unknown Device] {get_vendor(addr)}"
+    except Exception as e:
+        log.warning(f"BLE scan failed: {e}")
+        
+    return unique_devices
+
 # Function to scan for devices
 def scan_for_devices():
     main_menu()
@@ -380,19 +415,20 @@ def scan_for_devices():
 
     else:
         # DEEP SCAN METHOD (Nagamancayy Edition)
-        print("\n[!] Starting Deep Scan (Classic + BLE) for 15 seconds...")
-        unique_devices = {} # {addr: name}
+        print("\n[!] Starting Deep Scan (Classic + BLE)...")
+        unique_devices = perform_deep_scan()
         
-        # 1. Classic Scan - USE ORIGINAL METHOD PARAMS
-        print("Scanning Classic Bluetooth...")
-        try:
-            nearby_classic = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True, lookup_class=True)
-            for addr, name, _ in nearby_classic:
-                unique_devices[addr] = name if name else None
-        except Exception as e:
-            log.warning(f"Classic scan failed: {e}")
-
-        # 2. BLE Scan
+        device_list = []
+        for addr, name in unique_devices.items():
+            device_list.append((addr, name))
+        
+        # Save the scanned devices
+        new_devices = [device for device in device_list if device not in known_devices]
+        if new_devices:
+            known_devices += new_devices
+            save_devices_to_file(known_devices)
+        
+        return device_list
         print("Checking for BLE devices (iPhone/Modern Android)...")
         try:
             lescan_proc = subprocess.Popen(["sudo", "hcitool", "lescan", "--duplicates"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)

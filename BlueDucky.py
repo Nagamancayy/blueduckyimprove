@@ -4,7 +4,7 @@ from pydbus import SystemBus
 from enum import Enum
 import os
 
-from utils.menu_functions import (main_menu, read_duckyscript, run, restart_bluetooth_daemon, get_target_address)
+from utils.menu_functions import (main_menu, read_duckyscript, run, restart_bluetooth_daemon, get_target_address, perform_deep_scan)
 from utils.register_device import register_hid_profile, agent_loop
 
 child_processes = []
@@ -693,26 +693,14 @@ def blast_loop(adapter_id, duckyscript, recon_only=False):
     adapter_obj = None
     
     try:
-        # 1. INITIAL RECON PHASE
+        # 1. INITIAL RECON PHASE (Deep Scan Mode 2)
+        initial_targets = perform_deep_scan(duration_classic=8, duration_ble=10)
+        
+        for addr, name in initial_targets.items():
+            print(f"  [+] Discovered: {name} ({addr})")
+
         adapter_obj = bus.get("org.bluez", f"/org/bluez/{adapter_id}")
         adapter_obj.StartDiscovery()
-        
-        start_time = time.time()
-        initial_targets = {} # {addr: name}
-        
-        while time.time() - start_time < 10:
-            mngr = bus.get("org.bluez", "/")
-            objs = mngr.GetManagedObjects()
-            for path, interfaces in objs.items():
-                if "org.bluez.Device1" in interfaces:
-                    props = interfaces["org.bluez.Device1"]
-                    name = props.get("Name", props.get("Alias", None))
-                    addr = path.split('/')[-1].replace('dev_', '').replace('_', ':')
-                    if name and not name.startswith("00-00-00"):
-                        if addr not in initial_targets:
-                            print(f"  [+] Discovered: {name} ({addr})")
-                            initial_targets[addr] = name
-            time.sleep(1)
             
         print("\n" + "-"*50)
         print(f"[!] Total Devices Found: {len(initial_targets)}")
