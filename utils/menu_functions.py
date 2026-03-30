@@ -291,15 +291,21 @@ def print_fancy_ascii_art():
     reset = "\033[0m"
     
     art = f"""{cyan}
-      .-------.
-     /   >_   /
-    |         |
-    |      __ |
-    |     /  \\|
-    |    |    |   {blue}BlueDucky Improve{cyan}
-    |     \\__/    {blue}v3.0 - Multi-Target Blast{cyan}
-     \\_______/
-    {reset}"""
+                .___________.
+        (O)____/  {blue}_________  {cyan}\____(O)
+              /  {blue}/         \ {cyan} \
+       (O)___/  {blue}/           \ {cyan} \___(O)
+            /  {blue}/             \ {cyan} \
+      (O)__/  {blue}/     /{cyan}\     {blue}\ {cyan} \__(O)
+           \  {blue}\    /  \    / {cyan} /
+            \  {blue}\  /    \  / {cyan} /
+             \  {blue}\/      \/ {cyan} /
+              \           /
+               \_________/
+               
+           {blue}BlueDucky Improve{cyan}
+          {blue}v3.0 - Blast Mode{reset}
+    """
     print(art)
 
 def clear_screen():
