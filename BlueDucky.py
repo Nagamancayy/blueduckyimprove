@@ -799,21 +799,31 @@ def main():
         
     main_menu()
     
-    # UNIFIED FLOW: Scan/Select Target -> Mode Selection -> Execute
-    result = get_target_address()
-    if not result:
-        log.info("No target selected. Exiting.")
-        return
+    # UNIFIED FLOW: Settings -> Scan/Select Target -> Mode Selection -> Execute
+    while True:
+        main_menu()
+        result = get_target_address()
+        
+        if not result:
+            log.info("No target selected. Exiting.")
+            return
 
-    is_blast = False
-    initial_devices = None
-    target_address = None
+        if result == "GO_STEALTH":
+            from utils.menu_functions import stealth_menu
+            stealth_menu(adapter_id)
+            continue
 
-    if isinstance(result, tuple) and result[0] == "BLAST_ALL":
-        is_blast = True
-        initial_devices = result[1]
-    else:
-        target_address = result
+        is_blast = False
+        initial_devices = None
+        target_address = None
+
+        if isinstance(result, tuple) and result[0] == "BLAST_ALL":
+            is_blast = True
+            initial_devices = result[1]
+        else:
+            target_address = result
+        
+        break # Exit loop to proceed with attack selection
 
     # 1. Choose Recon vs Attack
     print("\nSelect Action Mode:")

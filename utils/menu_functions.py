@@ -167,6 +167,7 @@ def track_all_named_rssi():
         if adapter:
             try: adapter.StopDiscovery()
             except: pass
+from utils.adapter_stealth import set_mac_address, set_impersonation, reset_stealth
 
 file_lock = threading.Lock()
 
@@ -178,7 +179,10 @@ def save_paired_device(addr, name, filename='paired_devices.txt'):
             file.write(f"[{timestamp}] {addr} | {name}\n")
 
 def get_target_address():
-    target_address = input("\nWhat is the target address? Leave blank and we will scan for you: ")
+    target_address = input("\nSelect a device (number), 'm' for Proximity Map, 'b' for BLAST ALL, or '3' for Stealth Settings: ").strip().lower()
+
+    if target_address == "3":
+        return "GO_STEALTH"
 
     if target_address == "":
         devices = scan_for_devices()
@@ -554,7 +558,41 @@ def print_menu():
     print("\033[1;35m" + separator + "\033[0m")  # Purple color for separator
     print("\033[1;32m" + "卄ﾑ𝖈𝗸╰Ꮗⁱ‿ᵗ𝔥╯ﾑ𝗸𝗸！| you can still attack devices without visibility..." + "\033[0m")
     print("\033[1;32m" + "If you have their MAC address..." + "\033[0m")
+    print("\033[1;33m" + "3: Stealth & Impersonation Settings (EXPERIMENTAL)" + "\033[0m")
     print("\033[1;35m" + separator + "\033[0m")  # Purple color for separator
+
+def stealth_menu(adapter_id):
+    """Sub-menu for managing adapter stealth and identity."""
+    while True:
+        clear_screen()
+        print_fancy_ascii_art()
+        print("\033[1;36m" + "=== STEALTH & IMPERSONATION SETTINGS ===" + "\033[0m")
+        print("1: Randomize MAC Address (Stealth)")
+        print("2: Impersonate Sony DualSense (Gamepad)")
+        print("3: Impersonate Logitech K810 (Keyboard)")
+        print("4: Impersonate Owner's iPhone (Phone)")
+        print("5: Reset Adapter (Restore Identity)")
+        print("q: Back to Main Menu")
+        
+        choice = input("\nSelect an option: ").lower().strip()
+        
+        if choice == '1':
+            set_mac_address(adapter_id)
+            input("\nPress Enter to continue...")
+        elif choice == '2':
+            set_impersonation(adapter_id, "Sony")
+            input("\nPress Enter to continue...")
+        elif choice == '3':
+            set_impersonation(adapter_id, "Logitech")
+            input("\nPress Enter to continue...")
+        elif choice == '4':
+            set_impersonation(adapter_id, "Apple")
+            input("\nPress Enter to continue...")
+        elif choice == '5':
+            reset_stealth(adapter_id)
+            input("\nPress Enter to continue...")
+        elif choice == 'q':
+            break
 
 def main_menu():
     clear_screen()
