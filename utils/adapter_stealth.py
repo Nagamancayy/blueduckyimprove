@@ -1,7 +1,8 @@
 import subprocess
 import random
 import time
-import logging as log
+import logging
+log = logging.getLogger(__name__)
 
 def run_cmd(cmd):
     """Utility to run a command and return output."""

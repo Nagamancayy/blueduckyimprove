@@ -1,5 +1,6 @@
 import os, bluetooth,re, subprocess, time, curses, signal, threading
-import logging as log
+import logging
+log = logging.getLogger(__name__)
 from pydbus import SystemBus
 
 # Vendor OUI Dictionary for Identification
