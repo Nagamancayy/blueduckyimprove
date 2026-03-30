@@ -290,23 +290,28 @@ def print_fancy_ascii_art():
     blue = "\033[94m"
     reset = "\033[0m"
     
-    art = f"""{cyan}
-                .___________.
-        (O)____/  {blue}_________  {cyan}\____(O)
-              /  {blue}/         \ {cyan} \
-       (O)___/  {blue}/           \ {cyan} \___(O)
-            /  {blue}/             \ {cyan} \
-      (O)__/  {blue}/     /{cyan}\     {blue}\ {cyan} \__(O)
-           \  {blue}\    /  \    / {cyan} /
-            \  {blue}\  /    \  / {cyan} /
-             \  {blue}\/      \/ {cyan} /
-              \           /
-               \_________/
-               
-           {blue}BlueDucky Improve{cyan}
-          {blue}v3.0 - Blast Mode{reset}
-    """
-    print(art)
+    # Using a standard string and joining to avoid f-string backslash issues
+    lines = [
+        "                .___________.",
+        "        (O)____/  " + blue + "_________  " + cyan + "\\____(O)",
+        "              /  " + blue + "/         \\ " + cyan + " \\",
+        "       (O)___/  " + blue + "/           \\ " + cyan + " \\___(O)",
+        "            /  " + blue + "/             \\ " + cyan + " \\",
+        "      (O)__/  " + blue + "/     /\\     " + blue + "\\ " + cyan + " \\__(O)",
+        "           \\  " + blue + "\\    /  \\    / " + cyan + " /",
+        "            \\  " + blue + "\\  /    \\  / " + cyan + " /",
+        "             \\  " + blue + "\\/      \\/ " + cyan + " /",
+        "              \\           /",
+        "               \\_________/",
+        "",
+        "           " + blue + "BlueDucky Improve",
+        "          v3.0 - Blast Mode" + reset
+    ]
+    
+    print(cyan)
+    for line in lines:
+        print(line)
+    print(reset)
 
 def clear_screen():
     os.system('clear')
