@@ -429,24 +429,6 @@ def scan_for_devices():
             save_devices_to_file(known_devices)
         
         return device_list
-        print("Checking for BLE devices (iPhone/Modern Android)...")
-        try:
-            lescan_proc = subprocess.Popen(["sudo", "hcitool", "lescan", "--duplicates"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            time.sleep(5)
-            os.kill(lescan_proc.pid, signal.SIGINT)
-            out, _ = lescan_proc.communicate()
-            
-            for line in out.decode('utf-8', errors='ignore').splitlines():
-                parts = line.split(maxsplit=1)
-                if len(parts) >= 1 and is_valid_mac_address(parts[0]):
-                    addr = parts[0]
-                    name = parts[1] if len(parts) > 1 and parts[1] != "(unknown)" else None
-                    if addr not in unique_devices:
-                        unique_devices[addr] = name
-                    elif name and unique_devices[addr] is None:
-                        unique_devices[addr] = name
-        except Exception as e:
-            log.warning(f"BLE scan failed: {e}")
 
         # 3. RSSI Background Check
         print("Gathering signal strength (RSSI)...")
