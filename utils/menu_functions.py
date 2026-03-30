@@ -234,13 +234,16 @@ def get_target_address():
                         
                         print(f"\nTarget Selected: {name}")
                         print(f"Address: {addr}")
-                        print("-" * 20)
-                        print("1: Attack (Deliver Payload)")
-                        print("2: Discover Services (Scan UUIDs/GATT)")
-                        print("3: Proximity Tracker (Real-time RSSI)")
-                        print("4: Back to List")
+                        print("-" * 25)
+                        print(" 1: Attack (Deliver Payload)")
+                        print(" 2: Discover Services (UUIDs)")
+                        print(" 3: Proximity (Single RSSI)")
+                        print(" 4: Back to List")
+                        print("\n Or Global Actions:")
+                        print(" 'b': BLAST ALL Discovered")
+                        print(" 'm': Global Proximity Map")
                         
-                        action = input("\nSelect action (1-4): ").strip()
+                        action = input("\nSelect choice (1-4/b/m): ").strip().lower()
                         if action == "1":
                             return addr
                         elif action == "2":
@@ -250,6 +253,11 @@ def get_target_address():
                         elif action == "3":
                             track_rssi(addr)
                             input("\nPress Enter to return to device list...")
+                            continue
+                        elif action == "b":
+                            return "BLAST_ALL", devices
+                        elif action == "m":
+                            track_all_named_rssi()
                             continue
                         else:
                             continue 
