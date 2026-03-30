@@ -311,7 +311,7 @@ def print_fancy_ascii_art():
         "              \\           /",
         "               \\_________/",
         "",
-        "           " + blue + "BlueDucky Improve",
+        "       " + blue + "Elite Bluetooth Testing & Attacker",
         "          v3.0 - Blast Mode" + reset
     ]
     
@@ -551,7 +551,7 @@ def scan_for_devices():
     return []
 
 def print_menu():
-    title = "BlueDucky - Bluetooth Device Attacker"
+    title = "ELITE BLUETOOTH TESTING & ATTACKER"
     separator = "=" * 70
     print("\033[1;35m" + separator)  # Purple color for separator
     print("\033[1;33m" + title.center(len(separator)))  # Yellow color for title
